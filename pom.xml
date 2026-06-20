@@ -34,7 +34,7 @@
 
         <!-- Quality plugins -->
         <spotless-plugin.version>3.4.0</spotless-plugin.version>
-        <jacoco-plugin.version>0.8.14</jacoco-plugin.version>
+        <jacoco-plugin.version>0.8.15</jacoco-plugin.version>
         <palantir-java-format.version>2.90.0</palantir-java-format.version>
 
         <skipITs>true</skipITs>
