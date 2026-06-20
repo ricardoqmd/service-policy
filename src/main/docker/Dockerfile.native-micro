@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dockerfile.native-micro — Service Policy on a minimal base (production optimization)
+# ─────────────────────────────────────────────────────────────────────────────
+# NOT THE DEFAULT for this project. Use Dockerfile.native for normal native builds.
+#
+# This Dockerfile uses the smallest possible base image (quarkus-micro-image),
+# which trims ~75 MB off the image size compared to Dockerfile.native.
+# Worth it when running at scale (hundreds/thousands of pods, cold-start
+# sensitive serverless, edge deployments with limited storage).
+# NOT worth the friction for local development or portfolio projects.
+#
+# IMPORTANT: this base image ships with an older glibc that may not match
+# the glibc version of the GraalVM builder image. If you build with the
+# default native build, you'll likely see at runtime:
+#
+#   ./application: /lib64/libc.so.6: version `GLIBC_2.33' not found
+#
+# Two ways to fix it:
+#
+# (a) Static linking against musl (recommended for production):
+#     Removes the glibc dependency entirely. The resulting binary is fully
+#     self-contained and could even run on `scratch`.
+#
+#     ./mvnw clean package -Pnative \
+#       -Dquarkus.native.container-build=true \
+#       -Dquarkus.native.additional-build-args="--static --libc=musl"
+#     docker build -f src/main/docker/Dockerfile.native-micro -t service-policy:native-micro .
+#
+# (b) Use the matching base image version:
+#     Find the quarkus-micro-image tag that ships with a glibc compatible
+#     with your Mandrel builder version. This requires checking release
+#     notes and breaks reproducibility, so option (a) is preferred.
+#
+# Image size: ~50 MB total (vs ~125 MB for Dockerfile.native)
+# Startup: ~30 milliseconds
+# Memory: ~30-50 MB RSS
+# ─────────────────────────────────────────────────────────────────────────────
+
+FROM quay.io/quarkus/quarkus-micro-image:2.0
+
+WORKDIR /work/
+RUN chown 1001 /work \
+    && chmod "g+rwX" /work \
+    && chown 1001:root /work
+
+COPY --chown=1001:root target/*-runner /work/application
+
+EXPOSE 8080
+USER 1001
+
+ENTRYPOINT ["./application", "-Dquarkus.http.host=0.0.0.0"]

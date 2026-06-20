@@ -1,0 +1,42 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dockerfile.native — Service Policy as a native executable
+# ─────────────────────────────────────────────────────────────────────────────
+# Builds an image that runs the application as a native Linux executable,
+# compiled ahead-of-time with GraalVM. No JVM at runtime.
+#
+# Build (requires Docker for the GraalVM toolchain, no local GraalVM needed):
+#   ./mvnw clean package -Pnative -Dquarkus.native.container-build=true
+#   docker build -f src/main/docker/Dockerfile.native -t service-policy:native .
+#
+# Run:
+#   docker run -i --rm -p 8080:8080 service-policy:native
+#
+# When to use:
+#   - Serverless deployments (AWS Lambda, Cloud Run) where cold start matters.
+#   - High-density Kubernetes clusters where memory per pod is constrained.
+#   - Edge deployments with limited resources.
+#
+# Trade-offs:
+#   + Startup ~30ms, RSS ~30 MB, no JIT warm-up needed.
+#   - Build takes 3-5 minutes (vs ~30s for JVM).
+#   - Some Java features need explicit configuration (reflection, resources).
+#   - Image is from `quay.io/quarkus/quarkus-micro-image`, ~125 MB.
+#
+# Image size: ~125 MB
+# Startup time: ~30 milliseconds
+# Memory: ~30-50 MB RSS
+# ─────────────────────────────────────────────────────────────────────────────
+
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.6
+
+WORKDIR /work/
+RUN chown 1001 /work \
+    && chmod "g+rwX" /work \
+    && chown 1001:root /work
+
+COPY --chown=1001:root target/*-runner /work/application
+
+EXPOSE 8080
+USER 1001
+
+ENTRYPOINT ["./application", "-Dquarkus.http.host=0.0.0.0"]

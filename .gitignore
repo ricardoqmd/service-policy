@@ -1,0 +1,77 @@
+# ─── Maven ─────────────────────────────────────────────────
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# ─── Quarkus ───────────────────────────────────────────────
+.quarkus/
+
+# ─── IDEs ──────────────────────────────────────────────────
+# IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Eclipse
+.project
+.classpath
+.settings/
+.factorypath
+.apt_generated/
+.apt_generated_tests/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# NetBeans
+nbproject/private/
+build/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+
+# ─── OS ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Logs ──────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Secrets and local configuration ───────────────────────
+# These files must NEVER be committed to the public repository.
+# The pre-commit hook (gitleaks) validates that no secrets leak.
+.env
+.env.*
+!.env.example
+*.local.yml
+*.local.yaml
+*.local.properties
+secrets/
+**/secrets/**
+*-secret.*
+private/
+
+# Specific credential file patterns that commonly leak
+**/credentials.json
+**/service-account*.json
+**/*.pem
+**/*.key
+!**/sample*.pem
+!**/sample*.key
+
+# ─── Coverage and reports ──────────────────────────────────
+*.exec
+jacoco.exec
+coverage/

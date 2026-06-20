@@ -1,0 +1,121 @@
+# ─────────────────────────────────────────────────────────────
+# Service Policy · base configuration
+# ─────────────────────────────────────────────────────────────
+# 12-factor principle: all sensitive config comes from env vars.
+# This file holds reasonable defaults for local development.
+# In production, env vars override these values
+# (Docker, Kubernetes, systemd, etc.).
+
+quarkus:
+  application:
+    name: service-policy
+    version: 0.1.0-SNAPSHOT
+
+  # ─── HTTP server ───────────────────────────────────────────
+  http:
+    port: 8080
+    # Response compression (gzip) for JSON payloads.
+    enable-compression: true
+
+  # ─── Logging ───────────────────────────────────────────────
+  # Default: JSON structured logs to stdout (12-factor compliant).
+  # Overridden in %dev profile to be human-readable.
+  log:
+    level: INFO
+    category:
+      "io.github.ricardoqmd.servicepolicy":
+        level: DEBUG
+    console:
+      json:
+        pretty-print: false
+        date-format: "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"
+
+  # ─── Health checks ─────────────────────────────────────────
+  # Quarkus automatically exposes:
+  #   GET /q/health         → liveness + readiness combined
+  #   GET /q/health/live    → liveness  (am I alive?)
+  #   GET /q/health/ready   → readiness (can I receive traffic?)
+  smallrye-health:
+    root-path: /q/health
+
+  # ─── Metrics ───────────────────────────────────────────────
+  # Prometheus-format metrics exposed at /q/metrics.
+  micrometer:
+    export:
+      prometheus:
+        path: /q/metrics
+    binder:
+      http-server:
+        enabled: true
+      http-client:
+        enabled: true
+      jvm: true
+      system: true
+
+  # ─── OpenAPI / Swagger UI ──────────────────────────────────
+  swagger-ui:
+    always-include: true
+    path: /q/swagger-ui
+  smallrye-openapi:
+    path: /q/openapi
+    info-title: "Service Policy — PDP"
+    info-version: "1.0.0"
+    store-schema-directory: docs
+
+# ─────────────────────────────────────────────────────────────
+# Service Policy custom configuration (typed via ServicePolicyConfig)
+# ─────────────────────────────────────────────────────────────
+service-policy:
+  info:
+    name: "Service Policy"
+    description: "Open source ABAC Policy Decision Point"
+    repository: "https://github.com/ricardoqmd/service-policy"
+  stub:
+    policy-version: "stub-0"
+    denied-verbs:
+      - delete
+      - approve
+      - authorize
+    permissions:
+      rh:
+        - "empleado:read"
+        - "empleado:create"
+        - "empleado:update"
+        - "permiso:read"
+        - "permiso:request"
+
+# ═════════════════════════════════════════════════════════════
+# Profile: dev  (active when running `./mvnw quarkus:dev`)
+# ═════════════════════════════════════════════════════════════
+"%dev":
+  quarkus:
+    log:
+      level: DEBUG
+      # Human-readable plain-text logs in dev (override JSON default).
+      console:
+        format: "%d{HH:mm:ss.SSS} %-5p [%c{2.}] (%t) %s%e%n"
+
+# ═════════════════════════════════════════════════════════════
+# Profile: test  (active during `./mvnw test`)
+# ═════════════════════════════════════════════════════════════
+"%test":
+  quarkus:
+    log:
+      level: WARN
+      category:
+        "io.github.ricardoqmd.servicepolicy":
+          level: INFO
+      console:
+        format: "%d{HH:mm:ss.SSS} %-5p [%c{2.}] (%t) %s%e%n"
+
+# ═════════════════════════════════════════════════════════════
+# Profile: prod  (default when running the packaged jar)
+# ═════════════════════════════════════════════════════════════
+"%prod":
+  quarkus:
+    log:
+      level: INFO
+    # Swagger UI disabled in production for security
+    # (prevents attackers from probing endpoint schemas).
+    swagger-ui:
+      always-include: false

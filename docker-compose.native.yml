@@ -1,0 +1,36 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose.native.yml — Service Policy as a native executable
+# ─────────────────────────────────────────────────────────────────────────────
+# Same stack as docker-compose.yml but uses the native executable instead of
+# the JVM. Useful to compare startup time and memory consumption.
+#
+# Before running:
+#   ./mvnw clean package -Pnative -Dquarkus.native.container-build=true
+#
+# Then:
+#   docker compose -f docker-compose.yml -f docker-compose.native.yml up --build
+#
+# Expected differences vs JVM:
+#   - Startup ~30ms instead of ~1s
+#   - Memory ~30-50 MB instead of ~200 MB
+#   - Image size ~125 MB instead of ~210 MB
+#
+# Note: we use Dockerfile.native (UBI minimal base), not Dockerfile.native-micro.
+# The micro variant requires static linking against musl to avoid glibc version
+# mismatches between the GraalVM builder and the runtime base image.
+# Worth doing in production at scale; not worth the friction in development.
+# See DOCKER.md for the static/musl recipe.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  service-policy:
+    build:
+      context: .
+      # Override the JVM Dockerfile with the native one (UBI minimal).
+      dockerfile: src/main/docker/Dockerfile.native
+    image: service-policy:native
+    # Native executables don't need the JVM-specific tuning.
+    environment:
+      QUARKUS_PROFILE: prod
+      QUARKUS_MONGODB_CONNECTION_STRING: mongodb://mongodb:27017
+      QUARKUS_MONGODB_DATABASE: service-policy

@@ -1,0 +1,56 @@
+# EditorConfig — https://editorconfig.org
+# Configures editors to apply consistent code style across the project.
+# Most editors support this natively (IntelliJ, VS Code, Eclipse, Vim, etc.).
+
+root = true
+
+# ── Default: all files ───────────────────────────────────────────
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 120
+
+# ── Java ─────────────────────────────────────────────────────────
+[*.java]
+indent_size = 4
+# Palantir Java Format uses 4-space indentation.
+
+# ── XML (pom.xml, etc.) ──────────────────────────────────────────
+[*.xml]
+indent_size = 4
+
+# ── YAML ─────────────────────────────────────────────────────────
+[*.{yml,yaml}]
+indent_size = 2
+
+# ── JSON ─────────────────────────────────────────────────────────
+[*.json]
+indent_size = 2
+
+# ── Markdown ─────────────────────────────────────────────────────
+[*.md]
+indent_size = 2
+# Trailing spaces in markdown create line breaks; keep them.
+trim_trailing_whitespace = false
+
+# ── Shell scripts ────────────────────────────────────────────────
+[*.sh]
+indent_size = 2
+end_of_line = lf
+
+# ── Windows-specific files ───────────────────────────────────────
+[*.{cmd,bat,ps1}]
+end_of_line = crlf
+
+# ── Maven wrapper ────────────────────────────────────────────────
+[mvnw]
+indent_size = 2
+end_of_line = lf
+
+# ── Makefiles ────────────────────────────────────────────────────
+[{Makefile,makefile,GNUmakefile}]
+indent_style = tab

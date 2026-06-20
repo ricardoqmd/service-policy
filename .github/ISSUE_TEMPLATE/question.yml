@@ -1,0 +1,51 @@
+name: Question
+description: Ask a question about Service Policy
+title: "[Question]: "
+labels:
+  - question
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening a question, please check:
+        - The [README](https://github.com/ricardoqmd/service-policy#readme) and [docs/](https://github.com/ricardoqmd/service-policy/tree/main/docs) folder.
+        - Existing [open and closed issues](https://github.com/ricardoqmd/service-policy/issues?q=is%3Aissue).
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: Ask as clearly as you can. Include any relevant context.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: Describe what you have already attempted, to avoid duplicate suggestions.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic area
+      options:
+        - Setup / installation
+        - Configuration
+        - Architecture / design
+        - Performance
+        - Integration with other systems
+        - Other
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: coc
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I have read and agree to the [Code of Conduct](https://github.com/ricardoqmd/service-policy/blob/main/CODE_OF_CONDUCT.md).
+          required: true

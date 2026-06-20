@@ -1,0 +1,75 @@
+# ─── Build artifacts (Maven generates these locally, not needed in image) ──
+# Note: when using Dockerfiles in src/main/docker/, the target/ directory
+# IS needed because the Dockerfiles copy from it. So we don't ignore it
+# entirely. We ignore everything else.
+
+# ─── Source we don't need at runtime ──────────────────────────────────────
+src/test/
+src/main/java/
+src/main/resources/
+!src/main/resources/application.yml
+
+# ─── Maven artifacts we don't need ─────────────────────────────────────────
+target/maven-archiver/
+target/maven-status/
+target/test-classes/
+target/surefire-reports/
+target/failsafe-reports/
+target/site/
+target/*.original
+target/quarkus-app-dependencies.txt
+
+# ─── Git ───────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# ─── Docs and metadata ─────────────────────────────────────────────────────
+README.md
+SECURITY.md
+LICENSE
+CHANGELOG.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+docs/
+*.md
+
+# ─── IDEs ──────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+
+# ─── OS ────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Logs ──────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Secrets and local configuration ───────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.local.yml
+*.local.yaml
+*.local.properties
+secrets/
+private/
+
+# ─── Maven wrapper (not needed at runtime, image already has JVM) ──────────
+.mvn/
+mvnw
+mvnw.cmd
+
+# ─── Docker meta files ─────────────────────────────────────────────────────
+docker-compose*.yml
+Dockerfile*
+!src/main/docker/Dockerfile*

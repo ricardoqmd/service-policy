@@ -1,0 +1,43 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dockerfile.jvm — Service Policy on the JVM
+# ─────────────────────────────────────────────────────────────────────────────
+# Builds an image that runs the application using the JVM. This is the
+# standard option for most production workloads and development.
+#
+# Build:
+#   ./mvnw clean package
+#   docker build -f src/main/docker/Dockerfile.jvm -t service-policy:jvm .
+#
+# Run:
+#   docker run -i --rm -p 8080:8080 service-policy:jvm
+#
+# Tunables (via environment variables):
+#   JAVA_OPTS_APPEND  — extra JVM flags appended at runtime
+#   JAVA_MAX_MEM_RATIO — % of container RAM to use as max heap (default 50)
+#   QUARKUS_HTTP_PORT — application port (default 8080)
+#
+# Image size: ~210 MB (Quarkus base layer + your app)
+# Startup time: ~1 second
+# Memory: ~150-250 MB RSS under typical load
+# ─────────────────────────────────────────────────────────────────────────────
+
+FROM registry.access.redhat.com/ubi9/openjdk-21:1.21
+
+ENV LANGUAGE='en_US:en'
+
+# ── Copy artifacts produced by `mvnw clean package` ──
+# Quarkus places everything needed under target/quarkus-app/
+COPY --chown=185 target/quarkus-app/lib/      /deployments/lib/
+COPY --chown=185 target/quarkus-app/*.jar     /deployments/
+COPY --chown=185 target/quarkus-app/app/      /deployments/app/
+COPY --chown=185 target/quarkus-app/quarkus/  /deployments/quarkus/
+
+EXPOSE 8080
+USER 185
+
+# JAVA_OPTS_APPEND lets users add flags at run time
+# (e.g. -XX:+PrintGCDetails) without rebuilding the image.
+ENV JAVA_OPTS_APPEND="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager"
+ENV JAVA_APP_JAR="/deployments/quarkus-run.jar"
+
+ENTRYPOINT [ "/opt/jboss/container/java/run/run-java.sh" ]

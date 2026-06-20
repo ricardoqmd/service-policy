@@ -1,0 +1,341 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>io.github.ricardoqmd</groupId>
+    <artifactId>service-policy</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>service-policy</name>
+    <description>Open source ABAC Policy Decision Point (PDP) built with Quarkus and MongoDB</description>
+    <url>https://github.com/ricardoqmd/service-policy</url>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <maven.compiler.release>21</maven.compiler.release>
+
+        <!-- Quarkus -->
+        <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
+        <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
+        <quarkus.platform.version>3.33.1</quarkus.platform.version>
+
+        <!-- Maven plugins -->
+        <compiler-plugin.version>3.13.0</compiler-plugin.version>
+        <surefire-plugin.version>3.5.2</surefire-plugin.version>
+
+        <!-- Quality plugins -->
+        <spotless-plugin.version>3.4.0</spotless-plugin.version>
+        <jacoco-plugin.version>0.8.14</jacoco-plugin.version>
+        <palantir-java-format.version>2.90.0</palantir-java-format.version>
+
+        <skipITs>true</skipITs>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>${quarkus.platform.group-id}</groupId>
+                <artifactId>${quarkus.platform.artifact-id}</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Core: REST endpoints with Jackson serialization -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-jackson</artifactId>
+        </dependency>
+
+        <!-- Configuration: typed config properties -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-config-yaml</artifactId>
+        </dependency>
+
+        <!-- Observability: healthchecks (liveness/readiness) + Prometheus metrics -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-health</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- OpenAPI/Swagger UI for documenting REST endpoints -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-openapi</artifactId>
+        </dependency>
+
+        <!-- Logging: structured JSON logs to stdout (12-factor) -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-logging-json</artifactId>
+        </dependency>
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- ════════════════════════════════════════════════════════════
+                 Quarkus build plugin
+                 ════════════════════════════════════════════════════════════ -->
+            <plugin>
+                <groupId>${quarkus.platform.group-id}</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- ════════════════════════════════════════════════════════════
+                 Compiler
+                 ════════════════════════════════════════════════════════════ -->
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${compiler-plugin.version}</version>
+                <configuration>
+                    <parameters>true</parameters>
+                </configuration>
+            </plugin>
+
+            <!-- ════════════════════════════════════════════════════════════
+                 Testing: Surefire (unit) + Failsafe (integration)
+                 JaCoCo agent is wired in via argLine.
+                 ════════════════════════════════════════════════════════════ -->
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${surefire-plugin.version}</version>
+                <configuration>
+                    <systemPropertyVariables>
+                        <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+                        <maven.home>${maven.home}</maven.home>
+                    </systemPropertyVariables>
+                    <!-- JaCoCo agent gets injected here via @{argLine}.
+                         The @{} syntax (Maven 3.x) reads the property at runtime,
+                         after the prepare-agent goal has set it. -->
+                    <argLine>@{argLine}</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>${surefire-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                        <configuration>
+                            <systemPropertyVariables>
+                                <native.image.path>${project.build.directory}/${project.build.finalName}-runner</native.image.path>
+                                <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+                                <maven.home>${maven.home}</maven.home>
+                            </systemPropertyVariables>
+                            <argLine>@{argLine}</argLine>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- ════════════════════════════════════════════════════════════
+                 Spotless: automated code formatting
+                 ════════════════════════════════════════════════════════════
+                 Run manually:
+                   ./mvnw spotless:check       (verify formatting, no changes)
+                   ./mvnw spotless:apply       (auto-fix all formatting)
+
+                 Bound to the verify phase: `mvn verify` will fail if any file
+                 is not properly formatted. Run spotless:apply to fix.
+                 ════════════════════════════════════════════════════════════ -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>${spotless-plugin.version}</version>
+                <configuration>
+                    <java>
+                        <!-- Palantir Java Format: a Google-Java-Format fork used
+                             by many modern Java projects (Apache, Quarkus, etc.).
+                             Slightly more readable than vanilla Google format. -->
+                        <palantirJavaFormat>
+                            <version>${palantir-java-format.version}</version>
+                        </palantirJavaFormat>
+
+                        <!-- Remove unused imports automatically. -->
+                        <removeUnusedImports/>
+
+                        <!-- Sort imports in a consistent order. -->
+                        <importOrder>
+                            <order>java,javax,jakarta,org,com,io,</order>
+                        </importOrder>
+
+                        <!-- Trim trailing whitespace and ensure file ends with newline. -->
+                        <trimTrailingWhitespace/>
+                        <endWithNewline/>
+                    </java>
+
+                    <!-- Format pom.xml itself. -->
+                    <pom>
+                        <sortPom>
+                            <encoding>UTF-8</encoding>
+                            <expandEmptyElements>false</expandEmptyElements>
+                            <keepBlankLines>true</keepBlankLines>
+                            <nrOfIndentSpace>4</nrOfIndentSpace>
+                        </sortPom>
+                    </pom>
+
+                    <!-- Format Markdown files. -->
+                    <markdown>
+                        <includes>
+                            <include>**/*.md</include>
+                        </includes>
+                        <excludes>
+                            <exclude>target/**</exclude>
+                        </excludes>
+                        <flexmark/>
+                    </markdown>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- ════════════════════════════════════════════════════════════
+                 JaCoCo: test coverage reports
+                 ════════════════════════════════════════════════════════════
+                 prepare-agent → instruments the JVM during tests.
+                 report        → after tests, generates HTML+XML report at:
+                                 target/site/jacoco/index.html
+                                 target/site/jacoco/jacoco.xml
+                 check         → fails the build if coverage thresholds aren't met.
+
+                 Run:
+                   ./mvnw test          → only runs tests + JaCoCo report
+                   ./mvnw verify        → full build, includes spotless + jacoco check
+                 ════════════════════════════════════════════════════════════ -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                        <phase>verify</phase>
+                    </execution>
+                    <execution>
+                        <id>jacoco-check</id>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <phase>verify</phase>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <!-- Minimum 0% coverage to start.
+                                             Raise this as you add tests (e.g. 60%, 80%).
+                                             Setting too high early on blocks legitimate commits. -->
+                                        <limit>
+                                            <counter>INSTRUCTION</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.00</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                            <!-- Exclude generated code and trivial classes from coverage. -->
+                            <excludes>
+                                <exclude>**/generated/**</exclude>
+                                <exclude>**/dto/**</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- ════════════════════════════════════════════════════════════
+             native profile: build a native executable with GraalVM
+             ════════════════════════════════════════════════════════════ -->
+        <profile>
+            <id>native</id>
+            <activation>
+                <property>
+                    <name>native</name>
+                </property>
+            </activation>
+            <properties>
+                <skipITs>false</skipITs>
+                <quarkus.native.enabled>true</quarkus.native.enabled>
+            </properties>
+        </profile>
+
+        <!-- ════════════════════════════════════════════════════════════
+             skip-quality profile: bypass spotless and jacoco
+             ════════════════════════════════════════════════════════════
+             Use during quick iteration when you don't want to fix
+             formatting on every build:
+               ./mvnw verify -P skip-quality
+             ════════════════════════════════════════════════════════════ -->
+        <profile>
+            <id>skip-quality</id>
+            <properties>
+                <spotless.check.skip>true</spotless.check.skip>
+                <jacoco.skip>true</jacoco.skip>
+            </properties>
+        </profile>
+    </profiles>
+</project>

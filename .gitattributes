@@ -1,0 +1,24 @@
+# Default: auto-detect text files and normalize line endings to LF in repo.
+* text=auto eol=lf
+
+# Source code: always LF (even on Windows checkouts).
+*.java       text eol=lf
+*.xml        text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+*.properties text eol=lf
+*.json       text eol=lf
+*.md         text eol=lf
+*.sh         text eol=lf
+
+# Maven wrapper: keep platform-appropriate endings.
+mvnw         text eol=lf
+mvnw.cmd     text eol=crlf
+
+# Binary files: never touched.
+*.jar        binary
+*.zip        binary
+*.png        binary
+*.jpg        binary
+*.gif        binary
+*.ico        binary

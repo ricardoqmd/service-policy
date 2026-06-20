@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/ricardoqmd/service-policy/security/advisories/new
+    about: Please report security vulnerabilities privately using GitHub Security Advisories — do not open a public issue.
+  - name: Documentation
+    url: https://github.com/ricardoqmd/service-policy#readme
+    about: Check the README and docs/ folder before opening an issue — your question may already be answered there.

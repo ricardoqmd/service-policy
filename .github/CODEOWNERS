@@ -1,0 +1,5 @@
+# Default owner for everything in the repository.
+# Ricardo reviews all changes unless a more specific rule below overrides it.
+# Add path-specific rules here as the team grows, e.g.:
+#   docs/  @ricardoqmd @your-docs-reviewer
+* @ricardoqmd

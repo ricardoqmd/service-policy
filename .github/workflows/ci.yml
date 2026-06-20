@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# Cancel in-progress runs when a new commit is pushed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only by default. Individual jobs can request more permissions.
+permissions:
+  contents: read
+
+jobs:
+
+  # ────────────────────────────────────────────────────────────────
+  # Build & test
+  # Compiles the project, runs unit tests, generates JaCoCo report,
+  # checks Spotless formatting (via the verify phase).
+  # ────────────────────────────────────────────────────────────────
+  build-and-test:
+    name: Build & test (JDK ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # We officially support JDK 21. Add more versions here if you want
+        # to validate broader compatibility (e.g., 22, 23 preview builds).
+        java: ['21']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Verify Maven wrapper
+        run: ./mvnw --version
+
+      # `verify` runs: compile → test → spotless:check → jacoco:report → jacoco:check
+      # If any step fails, the build fails. This is what we want for PRs.
+      - name: Build, test, format check, coverage
+        run: ./mvnw -B verify
+
+      # Upload JaCoCo HTML report as a downloadable artifact.
+      # Useful to inspect coverage details without running the build locally.
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report-jdk${{ matrix.java }}
+          path: target/site/jacoco/
+          retention-days: 14
+
+      # Upload test results on failure so we can see what failed.
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-jdk${{ matrix.java }}
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────
+  # Secret scan
+  # gitleaks scans the entire git history for accidentally committed
+  # credentials, API keys, tokens, etc. If it finds anything, the
+  # PR cannot be merged.
+  # ────────────────────────────────────────────────────────────────
+  secret-scan:
+    name: Scan for leaked secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
