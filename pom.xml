@@ -33,7 +33,7 @@
         <surefire-plugin.version>3.5.6</surefire-plugin.version>
 
         <!-- Quality plugins -->
-        <spotless-plugin.version>3.4.0</spotless-plugin.version>
+        <spotless-plugin.version>3.7.0</spotless-plugin.version>
         <jacoco-plugin.version>0.8.15</jacoco-plugin.version>
         <palantir-java-format.version>2.90.0</palantir-java-format.version>
 
