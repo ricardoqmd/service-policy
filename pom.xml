@@ -30,7 +30,7 @@
 
         <!-- Maven plugins -->
         <compiler-plugin.version>3.15.0</compiler-plugin.version>
-        <surefire-plugin.version>3.5.2</surefire-plugin.version>
+        <surefire-plugin.version>3.5.6</surefire-plugin.version>
 
         <!-- Quality plugins -->
         <spotless-plugin.version>3.4.0</spotless-plugin.version>
