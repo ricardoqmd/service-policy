@@ -234,6 +234,7 @@
                         </includes>
                         <excludes>
                             <exclude>target/**</exclude>
+                            <exclude>CHANGELOG.md</exclude>
                         </excludes>
                         <flexmark/>
                     </markdown>
