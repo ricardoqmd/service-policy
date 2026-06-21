@@ -76,3 +76,5 @@ private/
 jacoco.exec
 coverage/
 .scannerwork/
+.sonarlint/*
+!.sonarlint/connectedMode.json
