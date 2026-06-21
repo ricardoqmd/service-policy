@@ -3,7 +3,6 @@ package io.github.ricardoqmd.servicepolicy.rest;
 import java.util.Base64;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -23,8 +22,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @ApplicationScoped
 public class SubjectResolver {
 
-    @Inject
-    ObjectMapper objectMapper;
+    private static final String PREFERRED_USERNAME = "preferred_username";
+
+    private final ObjectMapper objectMapper;
+
+    SubjectResolver(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     /**
      * Resolves the subject from the given {@code Authorization} header value.
@@ -53,9 +57,9 @@ public class SubjectResolver {
             if (claims.hasNonNull("sub") && !claims.get("sub").asText().isBlank()) {
                 return claims.get("sub").asText();
             }
-            if (claims.hasNonNull("preferred_username")
-                    && !claims.get("preferred_username").asText().isBlank()) {
-                return claims.get("preferred_username").asText();
+            if (claims.hasNonNull(PREFERRED_USERNAME)
+                    && !claims.get(PREFERRED_USERNAME).asText().isBlank()) {
+                return claims.get(PREFERRED_USERNAME).asText();
             }
             return "unknown";
         } catch (WebApplicationException e) {

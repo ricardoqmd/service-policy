@@ -3,7 +3,6 @@ package io.github.ricardoqmd.servicepolicy.rest;
 import java.time.Instant;
 import java.util.Map;
 
-import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -30,8 +29,11 @@ public class InfoResource {
 
     private static final Instant STARTED_AT = Instant.now();
 
-    @Inject
-    ServicePolicyConfig config;
+    private final ServicePolicyConfig config;
+
+    InfoResource(ServicePolicyConfig config) {
+        this.config = config;
+    }
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)

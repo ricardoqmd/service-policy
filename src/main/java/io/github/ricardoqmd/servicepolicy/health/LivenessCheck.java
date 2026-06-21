@@ -24,8 +24,6 @@ public class LivenessCheck implements HealthCheck {
 
     @Override
     public HealthCheckResponse call() {
-        // Si llegamos aquí, el JVM está respondiendo y la app está cargada.
-        // Eso es todo lo que liveness necesita confirmar.
         return HealthCheckResponse.up("service-policy-alive");
     }
 }

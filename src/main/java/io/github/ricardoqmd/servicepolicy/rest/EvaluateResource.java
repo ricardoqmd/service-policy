@@ -2,7 +2,6 @@ package io.github.ricardoqmd.servicepolicy.rest;
 
 import java.util.List;
 
-import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
@@ -35,11 +34,13 @@ import io.github.ricardoqmd.servicepolicy.evaluation.PolicyEvaluator;
 @Tag(name = "evaluation", description = "PEP-facing authorization evaluation endpoints.")
 public class EvaluateResource {
 
-    @Inject
-    PolicyEvaluator evaluator;
+    private final PolicyEvaluator evaluator;
+    private final SubjectResolver subjectResolver;
 
-    @Inject
-    SubjectResolver subjectResolver;
+    EvaluateResource(PolicyEvaluator evaluator, SubjectResolver subjectResolver) {
+        this.evaluator = evaluator;
+        this.subjectResolver = subjectResolver;
+    }
 
     @POST
     @Operation(

@@ -5,7 +5,6 @@ import java.util.Map;
 import java.util.UUID;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 
 import io.github.ricardoqmd.servicepolicy.config.StubConfig;
 
@@ -26,8 +25,11 @@ import io.github.ricardoqmd.servicepolicy.config.StubConfig;
 @ApplicationScoped
 public class StubPolicyEvaluator implements PolicyEvaluator {
 
-    @Inject
-    StubConfig config;
+    private final StubConfig config;
+
+    StubPolicyEvaluator(StubConfig config) {
+        this.config = config;
+    }
 
     @Override
     public Decision evaluate(String subject, EvaluationRequest request) {
