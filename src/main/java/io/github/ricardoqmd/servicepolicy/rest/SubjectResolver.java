@@ -2,7 +2,7 @@ package io.github.ricardoqmd.servicepolicy.rest;
 
 import java.util.Base64;
 
-import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Singleton;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -19,7 +19,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * <p><strong>STUB ONLY</strong> — real token validation via {@code quarkus-oidc} + JWKS endpoint
  * is introduced in Phase 3 (ADR-003). This class will be removed at that point.
  */
-@ApplicationScoped
+// @Singleton (not @ApplicationScoped): stateless bean, no proxy needed; the proxy would
+// also hide constructor coverage from JaCoCo (see PR #14).
+@Singleton
 public class SubjectResolver {
 
     private static final String PREFERRED_USERNAME = "preferred_username";
@@ -62,8 +64,6 @@ public class SubjectResolver {
                 return claims.get(PREFERRED_USERNAME).asText();
             }
             return "unknown";
-        } catch (WebApplicationException e) {
-            throw e;
         } catch (Exception e) {
             throw unauthorized("Unable to decode JWT payload.");
         }
