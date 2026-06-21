@@ -186,6 +186,113 @@ class EvaluationResourceTest {
                 .body("decisions", hasSize(2));
     }
 
+    @Test
+    void evaluateMissingResourceReturns400() {
+        given().header("Authorization", AUTH)
+                .contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "action": "empleado:read"
+                        }
+                        """)
+                .when()
+                .post("/v1/evaluate")
+                .then()
+                .statusCode(400)
+                .body("error", equalTo("BAD_REQUEST"));
+    }
+
+    @Test
+    void batchWithoutAuthorizationReturns401() {
+        given().contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "requests": [
+                            {
+                              "action": "empleado:read",
+                              "resource": {"type": "empleado", "id": "emp-1"}
+                            }
+                          ]
+                        }
+                        """)
+                .when()
+                .post("/v1/evaluate/batch")
+                .then()
+                .statusCode(401);
+    }
+
+    @Test
+    void batchPreservesOrderOfPermitAndDenyDecisions() {
+        given().header("Authorization", AUTH)
+                .contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "requests": [
+                            {
+                              "action": "empleado:read",
+                              "resource": {"type": "empleado", "id": "emp-1"}
+                            },
+                            {
+                              "action": "empleado:delete",
+                              "resource": {"type": "empleado", "id": "emp-1"}
+                            }
+                          ]
+                        }
+                        """)
+                .when()
+                .post("/v1/evaluate/batch")
+                .then()
+                .statusCode(200)
+                .body("decisions[0].allowed", equalTo(true))
+                .body("decisions[1].allowed", equalTo(false));
+    }
+
+    @Test
+    void evaluateActionWithNoColonFallsBackToDefaultPermit() {
+        given().header("Authorization", AUTH)
+                .contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "action": "ping",
+                          "resource": {"type": "system"}
+                        }
+                        """)
+                .when()
+                .post("/v1/evaluate")
+                .then()
+                .statusCode(200)
+                .body("allowed", equalTo(true));
+    }
+
+    @Test
+    void evaluateNoContextNoAttributesDefaultsToPermit() {
+        given().header("Authorization", AUTH)
+                .contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "action": "empleado:read",
+                          "resource": {"type": "empleado", "id": "emp-1"}
+                        }
+                        """)
+                .when()
+                .post("/v1/evaluate")
+                .then()
+                .statusCode(200)
+                .body("allowed", equalTo(true))
+                .body("reason", equalTo("permitted by default stub policy"));
+    }
+
+    @Test
+    void permissionsForUnknownAppReturnsEmptyList() {
+        given().header("Authorization", AUTH)
+                .queryParam("app", "unknown-app")
+                .when()
+                .get("/v1/permissions")
+                .then()
+                .statusCode(200)
+                .body("permissions", hasSize(0));
+    }
+
     /**
      * Builds a minimal unsigned JWT with the given subject for use in tests.
      *

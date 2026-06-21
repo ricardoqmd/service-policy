@@ -4,8 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import io.github.ricardoqmd.servicepolicy.config.StubConfig;
 
@@ -23,11 +22,16 @@ import io.github.ricardoqmd.servicepolicy.config.StubConfig;
  *
  * <p>Replace with a persistence-backed evaluator in Phase 2.
  */
-@ApplicationScoped
+// @Singleton (not @ApplicationScoped): stateless bean, no proxy needed; the proxy would
+// also hide constructor coverage from JaCoCo (see PR #14).
+@Singleton
 public class StubPolicyEvaluator implements PolicyEvaluator {
 
-    @Inject
-    StubConfig config;
+    private final StubConfig config;
+
+    StubPolicyEvaluator(StubConfig config) {
+        this.config = config;
+    }
 
     @Override
     public Decision evaluate(String subject, EvaluationRequest request) {

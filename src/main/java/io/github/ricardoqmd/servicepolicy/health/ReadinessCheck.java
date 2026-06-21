@@ -25,8 +25,8 @@ public class ReadinessCheck implements HealthCheck {
 
     @Override
     public HealthCheckResponse call() {
-        // TODO Phase 2: check MongoDB connection.
-        // TODO Phase 3: check Keycloak JWKS endpoint reachability.
+        // Phase 2 will add a MongoDB connectivity check here.
+        // Phase 3 will add a Keycloak JWKS endpoint reachability check here.
         return HealthCheckResponse.up("service-policy-ready");
     }
 }
