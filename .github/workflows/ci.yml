@@ -37,7 +37,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
-
+        with:
+          fetch-depth: 0
+          
       - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v5
         with:
@@ -52,6 +54,15 @@ jobs:
       # If any step fails, the build fails. This is what we want for PRs.
       - name: Build, test, format check, coverage
         run: ./mvnw -B verify
+
+      # Hands the build off to SonarQube Cloud and blocks if the Quality Gate
+      # fails (Clean as You Code). Runs after `verify` so it consumes the
+      # compiled classes + JaCoCo report. Only the reference JDK.
+      - name: SonarQube Cloud analysis
+        if: matrix.java == '21'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: ./mvnw -B sonar:sonar -Dsonar.qualitygate.wait=true
 
       # Upload JaCoCo HTML report as a downloadable artifact.
       # Useful to inspect coverage details without running the build locally.
