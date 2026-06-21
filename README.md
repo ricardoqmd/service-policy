@@ -1,3 +1,5 @@
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=ricardoqmd_service-policy&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ricardoqmd_service-policy)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=ricardoqmd_service-policy&metric=coverage)](https://sonarcloud.io/summary/new_code?id=ricardoqmd_service-policy)
 [![CI](https://github.com/ricardoqmd/service-policy/actions/workflows/ci.yml/badge.svg)](https://github.com/ricardoqmd/service-policy/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)

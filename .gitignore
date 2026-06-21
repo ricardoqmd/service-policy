@@ -75,3 +75,4 @@ private/
 *.exec
 jacoco.exec
 coverage/
+.scannerwork/
