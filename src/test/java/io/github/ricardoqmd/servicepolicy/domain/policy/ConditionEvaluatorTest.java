@@ -24,9 +24,7 @@ class ConditionEvaluatorTest {
     private AuthorizationRequest request() {
         Subject subject = new Subject("u1", Map.of("role", "reviewer", "area", "A", "level", 5));
         Resource resource = new Resource(
-                "document",
-                "doc-9",
-                Map.of("area", "A", "assignees", List.of("u1", "u7"), "sealed", true));
+                "document", "doc-9", Map.of("area", "A", "assignees", List.of("u1", "u7"), "sealed", true));
         return new AuthorizationRequest(subject, "document:read", resource, Map.of("emergency", false));
     }
 
@@ -61,7 +59,8 @@ class ConditionEvaluatorTest {
         assertTrue(evaluator.holds(cmp(Operator.IN, attr("subject.id"), attr("resource.attr.assignees")), request()));
         assertFalse(evaluator.holds(cmp(Operator.IN, lit("u9"), attr("resource.attr.assignees")), request()));
         assertTrue(evaluator.holds(cmp(Operator.NOT_IN, lit("u9"), attr("resource.attr.assignees")), request()));
-        assertFalse(evaluator.holds(cmp(Operator.NOT_IN, attr("subject.id"), attr("resource.attr.assignees")), request()));
+        assertFalse(
+                evaluator.holds(cmp(Operator.NOT_IN, attr("subject.id"), attr("resource.attr.assignees")), request()));
     }
 
     @Test

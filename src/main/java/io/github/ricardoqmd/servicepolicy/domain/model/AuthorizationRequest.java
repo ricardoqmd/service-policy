@@ -14,11 +14,7 @@ import java.util.Map;
  * @param resource what is being accessed.
  * @param context  circumstance attributes, e.g. {@code {"emergency": true}}; never null.
  */
-public record AuthorizationRequest(
-        Subject subject,
-        String action,
-        Resource resource,
-        Map<String, Object> context) {
+public record AuthorizationRequest(Subject subject, String action, Resource resource, Map<String, Object> context) {
 
     public AuthorizationRequest {
         context = context == null ? Map.of() : Map.copyOf(context);

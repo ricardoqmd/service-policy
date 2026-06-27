@@ -76,7 +76,6 @@ public final class ConditionEvaluator {
         if (a instanceof Number na && b instanceof Number nb) {
             return Double.compare(na.doubleValue(), nb.doubleValue());
         }
-        throw new PolicyTypeException(
-                "ordering operators require numeric operands, got: " + a + " and " + b);
+        throw new PolicyTypeException("ordering operators require numeric operands, got: " + a + " and " + b);
     }
 }

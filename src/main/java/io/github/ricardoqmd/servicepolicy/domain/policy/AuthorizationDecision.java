@@ -15,9 +15,4 @@ package io.github.ricardoqmd.servicepolicy.domain.policy;
  * @param matchedRuleId id of the rule that produced the effect; {@code null} if defaulted.
  */
 public record AuthorizationDecision(
-        boolean allowed,
-        Effect effect,
-        String reason,
-        String policyId,
-        int policyVersion,
-        String matchedRuleId) {}
+        boolean allowed, Effect effect, String reason, String policyId, int policyVersion, String matchedRuleId) {}

@@ -36,7 +36,6 @@ public record Policy(
      * @return {@code true} if this policy governs the given resource type and verb.
      */
     public boolean appliesTo(String resourceType, String verb) {
-        return this.resourceType.equals(resourceType)
-                && (actions.contains("*") || actions.contains(verb));
+        return this.resourceType.equals(resourceType) && (actions.contains("*") || actions.contains(verb));
     }
 }

@@ -48,9 +48,7 @@ class PolicyEngineTest {
                                 "sealed-deny",
                                 Effect.DENY,
                                 new Comparison(
-                                        Operator.EQ,
-                                        new AttributeRef("resource.attr.sealed"),
-                                        new Literal(true)))));
+                                        Operator.EQ, new AttributeRef("resource.attr.sealed"), new Literal(true)))));
     }
 
     private AuthorizationRequest read(
@@ -129,8 +127,7 @@ class PolicyEngineTest {
     @Test
     void wildcardActionApplies() {
         Policy wildcard = new Policy(
-                "any-document", 1, "document", List.of("*"),
-                CombiningAlgorithm.DENY_OVERRIDES, Effect.DENY, List.of());
+                "any-document", 1, "document", List.of("*"), CombiningAlgorithm.DENY_OVERRIDES, Effect.DENY, List.of());
         List<Policy> applicable = selector.select(List.of(wildcard), read0("document:delete"));
         assertEquals(1, applicable.size());
     }
@@ -140,8 +137,13 @@ class PolicyEngineTest {
     @Test
     void denyPolicyOverridesPermitPolicy() {
         Policy permitAll = new Policy(
-                "permit-all", 1, "document", List.of("read"),
-                CombiningAlgorithm.DENY_OVERRIDES, Effect.PERMIT, List.of());
+                "permit-all",
+                1,
+                "document",
+                List.of("read"),
+                CombiningAlgorithm.DENY_OVERRIDES,
+                Effect.PERMIT,
+                List.of());
         Policy denySealed = documentReadAccess();
 
         AuthorizationRequest request = read("u1", "A", "A", List.of("u1"), true); // sealed -> deny
@@ -153,8 +155,13 @@ class PolicyEngineTest {
     @Test
     void defaultPermitPolicyAllowsWhenNoRuleMatches() {
         Policy permitByDefault = new Policy(
-                "open-document", 1, "document", List.of("read"),
-                CombiningAlgorithm.DENY_OVERRIDES, Effect.PERMIT, List.of());
+                "open-document",
+                1,
+                "document",
+                List.of("read"),
+                CombiningAlgorithm.DENY_OVERRIDES,
+                Effect.PERMIT,
+                List.of());
         AuthorizationDecision d = engine.evaluate(List.of(permitByDefault), read0("document:read"));
         assertTrue(d.allowed());
         assertNull(d.matchedRuleId());
