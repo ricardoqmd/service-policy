@@ -81,3 +81,4 @@ never from the request body — a caller may assert attributes *about* an identi
 - A real attribute appears that the PEP cannot assert and the PDP must source itself (then
   implement an enriching `SubjectAttributeProvider` adapter — option B).
 - The PEP trust assumption no longer holds (then attributes need PDP-side verification).
+
