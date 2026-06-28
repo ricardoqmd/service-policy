@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/ricardoqmd/service-policy/compare/v0.1.3...v0.1.4) (2026-06-28)
+
+
+### Documentation
+
+* add ADR-009 on test coverage tooling and CDI scope convention ([#26](https://github.com/ricardoqmd/service-policy/issues/26)) ([79067c6](https://github.com/ricardoqmd/service-policy/commit/79067c6b2c374ad9b946474478f8186f4e2a11dc))
+
 ## [0.1.3](https://github.com/ricardoqmd/service-policy/compare/v0.1.2...v0.1.3) (2026-06-28)
 
 
