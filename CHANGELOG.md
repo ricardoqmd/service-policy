@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/ricardoqmd/service-policy/compare/v0.1.2...v0.1.3) (2026-06-28)
+
+
+### Features
+
+* persist policies in MongoDB via Panache ([#23](https://github.com/ricardoqmd/service-policy/issues/23)) ([52dfc38](https://github.com/ricardoqmd/service-policy/commit/52dfc38eac875a01608a9a77bb148e55d345414b))
+
 ## [0.1.2](https://github.com/ricardoqmd/service-policy/compare/v0.1.1...v0.1.2) (2026-06-27)
 
 
