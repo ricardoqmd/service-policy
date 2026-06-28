@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/ricardoqmd/service-policy/compare/v0.1.4...v0.1.5) (2026-06-28)
+
+
+### Documentation
+
+* add ADR-010 on subject attribute provenance ([#29](https://github.com/ricardoqmd/service-policy/issues/29)) ([abde413](https://github.com/ricardoqmd/service-policy/commit/abde413b2fbf4c66dafe71d856f2716e10734f0d))
+
 ## [0.1.4](https://github.com/ricardoqmd/service-policy/compare/v0.1.3...v0.1.4) (2026-06-28)
 
 
