@@ -2,7 +2,7 @@ package io.github.ricardoqmd.servicepolicy.persistence;
 
 import java.util.List;
 
-import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Singleton;
 
 import org.bson.Document;
 
@@ -15,7 +15,10 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
  * <p>The mappers are stateless and framework-free, so they are constructed here rather than
  * injected — keeping them free of CDI annotations.
  */
-@ApplicationScoped
+// @Singleton (not @ApplicationScoped): stateless bean, no proxy needed; the
+// @ApplicationScoped proxy is instantiated without calling the constructor, which
+// hides constructor/field-initializer coverage from JaCoCo (see PR #14).
+@Singleton
 public class PolicyStore {
 
     private final PolicyRepository repository;
