@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/ricardoqmd/service-policy/compare/v0.1.5...v0.1.6) (2026-06-28)
+
+
+### Documentation
+
+* clarify ADR-010 subject attributes as flat subjectAttributes field ([#32](https://github.com/ricardoqmd/service-policy/issues/32)) ([754e1c5](https://github.com/ricardoqmd/service-policy/commit/754e1c56db2d6c82ba5ddedb37739c1c5b47253d))
+
 ## [0.1.5](https://github.com/ricardoqmd/service-policy/compare/v0.1.4...v0.1.5) (2026-06-28)
 
 
