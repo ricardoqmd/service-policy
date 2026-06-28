@@ -24,8 +24,11 @@ never from the request body — a caller may assert attributes *about* an identi
 
 ## Decision
 
-1. **Non-JWT subject attributes are provided by the caller in the evaluation request.** The
-   PDP does not fetch them from source systems and does not store them.
+1. **Non-JWT subject attributes are provided by the caller in the evaluation request**, as a
+   flat `subjectAttributes` map sibling to `context` — never as a nested `subject` object, so
+   the request body never carries subject identity (that remains the JWT-sourced `subject`
+   parameter). The PDP does not fetch these attributes from source systems and does not store
+   them.
 2. **Identity comes from the validated JWT only** (`sub`, fallback `preferred_username`).
    A request with no usable subject identity is rejected as an invalid token.
 3. **Attribute resolution sits behind a port** (`SubjectAttributeProvider`). The MVP adapter
@@ -63,9 +66,11 @@ never from the request body — a caller may assert attributes *about* an identi
 
 - (+) Evaluation stays stateless and within the latency budget; no coupling to source
   systems.
-- (+) The evaluation request gains an additive `subject.attributes` field; callers that omit
-  it get an empty bag (less privilege), so it does not break existing callers — but it is an
-  addition to the frozen contract surface (ADR 4) and is recorded as such.
+- (+) The evaluation request gains an additive `subjectAttributes` field — a flat map sibling
+  to `context`, not a nested `subject` object, so request bodies never carry subject identity.
+  Callers that omit it get an empty bag (less privilege), so it does not break existing
+  callers — but it is an addition to the frozen contract surface (ADR 4) and is recorded as
+  such.
 - (+) External enrichment remains a future adapter swap, not a rewrite.
 - (−) The PDP trusts caller-asserted attributes; a compromised or buggy PEP could assert
   false attributes. Mitigated by the internal/trusted PEP assumption and authenticated
@@ -76,4 +81,3 @@ never from the request body — a caller may assert attributes *about* an identi
 - A real attribute appears that the PEP cannot assert and the PDP must source itself (then
   implement an enriching `SubjectAttributeProvider` adapter — option B).
 - The PEP trust assumption no longer holds (then attributes need PDP-side verification).
-
