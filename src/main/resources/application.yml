@@ -17,6 +17,10 @@ quarkus:
     # Response compression (gzip) for JSON payloads.
     enable-compression: true
 
+  # MongoDB — Dev Services starts a throwaway MongoDB for dev/test (Docker required).
+  mongodb:
+    database: service_policy
+
   # ─── Logging ───────────────────────────────────────────────
   # Default: JSON structured logs to stdout (12-factor compliant).
   # Overridden in %dev profile to be human-readable.
