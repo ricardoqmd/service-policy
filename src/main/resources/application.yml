@@ -74,19 +74,6 @@ service-policy:
     name: "Service Policy"
     description: "Open source ABAC Policy Decision Point"
     repository: "https://github.com/ricardoqmd/service-policy"
-  stub:
-    policy-version: "stub-0"
-    denied-verbs:
-      - delete
-      - approve
-      - authorize
-    permissions:
-      rh:
-        - "empleado:read"
-        - "empleado:create"
-        - "empleado:update"
-        - "permiso:read"
-        - "permiso:request"
 
 # ═════════════════════════════════════════════════════════════
 # Profile: dev  (active when running `./mvnw quarkus:dev`)
