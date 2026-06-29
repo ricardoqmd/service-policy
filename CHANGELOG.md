@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/ricardoqmd/service-policy/compare/v0.1.6...v0.1.7) (2026-06-29)
+
+
+### Features
+
+* replace stub with persistence-backed policy evaluator ([#36](https://github.com/ricardoqmd/service-policy/issues/36)) ([4b3ecd3](https://github.com/ricardoqmd/service-policy/commit/4b3ecd3f9e43cfa599937578ae110fc115005b08))
+
 ## [0.1.6](https://github.com/ricardoqmd/service-policy/compare/v0.1.5...v0.1.6) (2026-06-28)
 
 
