@@ -72,7 +72,7 @@ components:
       properties:
         action:
           type: string
-          description: "Action in 'resource:verb' format, e.g. 'empleado:read'."
+          description: "Action in 'resource:verb' format, e.g. 'document:read'."
         resource:
           description: Target resource being accessed.
           type: object
@@ -82,6 +82,11 @@ components:
           additionalProperties: {}
           description: "Optional runtime context attributes, e.g. {\"emergency\":\
             \ true}."
+        subjectAttributes:
+          type: object
+          additionalProperties: {}
+          description: "Optional non-identity subject attributes asserted by the caller,\
+            \ e.g. {\"area\": \"A\"}."
     Obligation:
       type: object
       description: Obligation the PEP must fulfill when enforcing a permit or deny

@@ -8,6 +8,15 @@
 
 ---
 
+> **Update (2026-06-28, Phase 2):** the `StubPolicyEvaluator` and its `StubConfig` have been
+> **removed** and replaced by the persistence-backed `PersistentPolicyEvaluator` (see ADR-008
+> and ADR-010). The decisions in this ADR that define the **PEP contract surface** — the REST
+> endpoints, the `Decision` shape, subject resolution from the Bearer JWT, inline resource
+> attributes, the batch endpoint, and OpenAPI-as-frozen-contract — **remain in force**; only
+> the stub implementation is superseded. One behavioural note: `/v1/permissions` now returns an
+> empty list pending a dedicated bulk-permissions decision (point-in-time ABAC evaluation and
+> bulk permission listing are distinct mechanisms).
+
 ## Context
 
 Phase 1 delivered the skeleton: Quarkus + health + metrics + CI. Before introducing persistence

@@ -5,11 +5,11 @@ import java.util.List;
 /**
  * Port: authorization evaluation engine.
  *
- * <p>Implementors answer whether a subject may perform an action on a resource, and can
- * enumerate all actions permitted for a subject within an application context.
+ * <p>Implementors answer whether a subject may perform an action on a resource, and can enumerate
+ * all actions permitted for a subject within an application context.
  *
- * <p>The stub implementation ({@link StubPolicyEvaluator}) is active in Phase 1.5. A
- * persistence-backed implementation will replace it in Phase 2.
+ * <p>The active implementation is {@link PersistentPolicyEvaluator}, which evaluates
+ * MongoDB-backed policies with the pure-domain engine (deny-overrides).
  */
 public interface PolicyEvaluator {
 
@@ -27,7 +27,7 @@ public interface PolicyEvaluator {
      *
      * @param subject the resolved subject identifier.
      * @param app     the application context name.
-     * @return list of permitted action strings; empty list if the app is unknown.
+     * @return list of permitted action strings; empty list if none.
      */
     List<String> permittedActions(String subject, String app);
 
