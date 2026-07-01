@@ -150,4 +150,43 @@ class ConditionEvaluatorTest {
                 UnknownAttributeException.class,
                 () -> evaluator.holds(cmp(Operator.EQ, attr("subject.salary"), lit(1)), request()));
     }
+
+    // ---- null operands: an absent attribute never satisfies a comparison (ADR-011) ----
+
+    @Test
+    void eqWithBothOperandsAbsentDoesNotHold() {
+        // the over-permit this fixes: null EQ null must NOT match.
+        assertFalse(evaluator.holds(
+                cmp(Operator.EQ, attr("subject.attr.absent"), attr("resource.attr.absent")), request()));
+    }
+
+    @Test
+    void eqWithOneAbsentOperandDoesNotHold() {
+        assertFalse(evaluator.holds(cmp(Operator.EQ, attr("subject.attr.absent"), lit("A")), request()));
+    }
+
+    @Test
+    void neqWithAbsentOperandDoesNotHold() {
+        // an absent attribute must not satisfy NEQ either, or a NEQ-based rule would over-match.
+        assertFalse(evaluator.holds(cmp(Operator.NEQ, attr("subject.attr.absent"), lit("A")), request()));
+    }
+
+    @Test
+    void inWithAbsentLeftDoesNotHold() {
+        assertFalse(evaluator.holds(
+                cmp(Operator.IN, attr("subject.attr.absent"), attr("resource.attr.assignees")), request()));
+    }
+
+    @Test
+    void notInWithAbsentRightCollectionDoesNotHold() {
+        // an absent collection makes NOT_IN not hold — distinct from a present non-collection,
+        // which stays vacuously true (a type concern, not absence).
+        assertFalse(evaluator.holds(cmp(Operator.NOT_IN, lit("x"), attr("resource.attr.absent")), request()));
+    }
+
+    @Test
+    void orderingWithAbsentOperandDoesNotHoldAndDoesNotThrow() {
+        // contrast orderingOnNonNumberThrows: an absent operand is no-match, not an error.
+        assertFalse(evaluator.holds(cmp(Operator.GT, attr("subject.attr.absent"), lit(3)), request()));
+    }
 }
