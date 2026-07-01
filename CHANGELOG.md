@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/ricardoqmd/service-policy/compare/v0.1.7...v0.1.8) (2026-07-01)
+
+
+### Bug Fixes
+
+* treat a null comparison operand as no-match ([#40](https://github.com/ricardoqmd/service-policy/issues/40)) ([082eb33](https://github.com/ricardoqmd/service-policy/commit/082eb3340f3654efe8b09b8457744166cbc20299))
+
 ## [0.1.7](https://github.com/ricardoqmd/service-policy/compare/v0.1.6...v0.1.7) (2026-06-29)
 
 
