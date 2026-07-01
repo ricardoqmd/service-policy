@@ -14,6 +14,11 @@ import io.github.ricardoqmd.servicepolicy.domain.model.AuthorizationRequest;
  * resolved by dotted path against the request's open bags; the evaluator hardcodes no
  * domain attribute names. An unknown path fails loudly ({@link UnknownAttributeException})
  * instead of silently — the safe default for authorization.
+ *
+ * <p>An <em>absent</em> attribute resolves to {@code null}, and a null operand makes a
+ * comparison not hold (ADR-011): absence never grants access and never accidentally matches.
+ * This differs from a <em>present</em> operand of the wrong type (e.g. a non-numeric value in
+ * an ordering comparison), which is a policy-authoring error and still fails loudly.
  */
 public final class ConditionEvaluator {
 
@@ -35,16 +40,36 @@ public final class ConditionEvaluator {
     private boolean compare(Comparison cmp, AuthorizationRequest request) {
         Object left = resolve(cmp.left(), request);
         Object right = resolve(cmp.right(), request);
+        // An absent attribute resolves to null. A null operand makes the comparison not hold
+        // (ADR-011): an absent attribute can neither grant access (permit rules require it present)
+        // nor accidentally match. A present operand of the wrong type remains a policy-authoring
+        // error and still fails loudly (see compareNumbers).
         return switch (cmp.op()) {
-            case EQ -> Objects.equals(left, right);
-            case NEQ -> !Objects.equals(left, right);
-            case IN -> right instanceof Collection<?> col && col.contains(left);
-            case NOT_IN -> !(right instanceof Collection<?> col) || !col.contains(left);
-            case GT -> compareNumbers(left, right) > 0;
-            case GTE -> compareNumbers(left, right) >= 0;
-            case LT -> compareNumbers(left, right) < 0;
-            case LTE -> compareNumbers(left, right) <= 0;
+            case EQ -> bothPresent(left, right) && Objects.equals(left, right);
+            case NEQ -> bothPresent(left, right) && !Objects.equals(left, right);
+            case IN -> left != null && right instanceof Collection<?> col && col.contains(left);
+            case NOT_IN -> notIn(left, right);
+            case GT -> bothPresent(left, right) && compareNumbers(left, right) > 0;
+            case GTE -> bothPresent(left, right) && compareNumbers(left, right) >= 0;
+            case LT -> bothPresent(left, right) && compareNumbers(left, right) < 0;
+            case LTE -> bothPresent(left, right) && compareNumbers(left, right) <= 0;
         };
+    }
+
+    private static boolean bothPresent(Object a, Object b) {
+        return a != null && b != null;
+    }
+
+    /**
+     * {@code NOT_IN} holds when both operands are present and {@code left} is not contained in the
+     * collection {@code right}. A null operand makes it not hold (ADR-011); a present but
+     * non-collection right keeps the prior vacuously-true behaviour (a type concern, not absence).
+     */
+    private static boolean notIn(Object left, Object right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        return !(right instanceof Collection<?> col) || !col.contains(left);
     }
 
     private Object resolve(Operand operand, AuthorizationRequest request) {
