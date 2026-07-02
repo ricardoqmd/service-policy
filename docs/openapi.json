@@ -147,6 +147,26 @@
           }
         }
       },
+      "PolicyCreated" : {
+        "description" : "Result of creating a policy.",
+        "type" : "object",
+        "required" : [ "policyId", "version", "active" ],
+        "properties" : {
+          "policyId" : {
+            "type" : "string",
+            "description" : "The created policy id."
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32",
+            "description" : "The created policy version."
+          },
+          "active" : {
+            "type" : "boolean",
+            "description" : "Whether the policy is active."
+          }
+        }
+      },
       "ResourceRef" : {
         "type" : "object",
         "description" : "Target resource being accessed.",
@@ -178,6 +198,9 @@
   }, {
     "name" : "permissions",
     "description" : "Subject permission listing endpoint."
+  }, {
+    "name" : "policies",
+    "description" : "PAP-facing policy authoring endpoints."
   } ],
   "paths" : {
     "/info" : {
@@ -280,6 +303,37 @@
                 "schema" : { }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/policies" : {
+      "post" : {
+        "summary" : "Create a policy",
+        "description" : "Creates a new active policy from the document-shaped body. Requires a Bearer token (HTTP 401 otherwise). Returns HTTP 400 if the body is malformed, or HTTP 409 if a policy with the same id already exists.",
+        "tags" : [ "policies" ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "type" : "object",
+                "additionalProperties" : { }
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : { }
+              }
+            }
+          },
+          "400" : {
+            "description" : "Bad Request"
           }
         }
       }

@@ -37,6 +37,13 @@ public class PolicyStore {
                 .toList();
     }
 
+    /**
+     * @return {@code true} if a policy with the given id already exists (any version or state).
+     */
+    public boolean exists(String policyId) {
+        return repository.existsByPolicyId(policyId);
+    }
+
     /** Persists a policy with the given active flag. */
     public void save(Policy policy, boolean active) {
         repository.persist(new PolicyDocument(active, new Document(mapper.toDocument(policy))));
