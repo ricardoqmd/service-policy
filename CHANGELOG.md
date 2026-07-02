@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/ricardoqmd/service-policy/compare/v0.1.8...v0.1.9) (2026-07-02)
+
+
+### Features
+
+* add POST /v1/policies to author policies over HTTP ([#43](https://github.com/ricardoqmd/service-policy/issues/43)) ([1919af2](https://github.com/ricardoqmd/service-policy/commit/1919af21fe3852cbded345e5f4ded630cad40594))
+
 ## [0.1.8](https://github.com/ricardoqmd/service-policy/compare/v0.1.7...v0.1.8) (2026-07-01)
 
 
