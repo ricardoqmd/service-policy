@@ -79,10 +79,10 @@ require the admin marker; `403` otherwise.
 
 **5. Data-plane subject provenance — hybrid rule.**
 - Request carries **no explicit subject** → subject = `token.sub` (self). ADR-010
-  default, unchanged.
+default, unchanged.
 - Request carries an **explicit subject equal to `token.sub`** → allowed.
 - Request carries an **explicit subject `≠ token.sub`** → require the delegation
-  marker; `403` otherwise.
+marker; `403` otherwise.
 
 **6. Concrete surface.** `EvaluationRequest` gains an **optional** `subject` field;
 absent means self (backwards compatible). The explicit subject travels in the
@@ -132,8 +132,9 @@ authenticated.**
 > already provide, while costing: every self-service call must self-declare its
 > subject (friction + a `GET→POST` regression on `/permissions`); it breaks the
 > ADR-004/ADR-010 frozen contract; and it still needs "self-only unless
-> delegation-marker" enforcement — which *is* the hybrid rule. Adopt only if a
-> second consumer requires a subject-parametric contract.
+>
+>> delegation-marker" enforcement — which *is* the hybrid rule. Adopt only if a
+>> second consumer requires a subject-parametric contract.
 
 **X) Confidential client + client_credentials + token-exchange** to preserve the
 end-user identity on service-to-service calls. Rejected for now: token-exchange is
@@ -169,3 +170,4 @@ self-service (every user would need the marker), defeating the endpoint's purpos
   once → revisit token-exchange (alternative X).
 - The delegated `/v1/permissions` transport is needed → settle it in the
   bulk-permissions ADR (query-param vs. POST, sub-in-URL trade-off).
+
