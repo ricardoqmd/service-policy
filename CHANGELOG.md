@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/ricardoqmd/service-policy/compare/v0.1.9...v0.1.10) (2026-07-05)
+
+
+### Documentation
+
+* add ADR-013 for PDP endpoint authorization ([#46](https://github.com/ricardoqmd/service-policy/issues/46)) ([bc913f6](https://github.com/ricardoqmd/service-policy/commit/bc913f665929beb6a190d9911eff146c40b91e89))
+
 ## [0.1.9](https://github.com/ricardoqmd/service-policy/compare/v0.1.8...v0.1.9) (2026-07-02)
 
 
