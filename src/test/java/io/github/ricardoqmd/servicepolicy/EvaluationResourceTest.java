@@ -5,32 +5,27 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-
 import org.junit.jupiter.api.Test;
 
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.security.TestSecurity;
 import io.restassured.http.ContentType;
 
 /**
  * Integration tests for the PEP-facing evaluation and permissions endpoints against the
- * persistence-backed evaluator. No policies are seeded here, so every evaluation falls through to
- * the fail-safe default deny — this increment proves the wiring end to end. Seeded permit/deny
- * scenarios over the neutral domain land in the next increment (2b-2).
+ * persistence-backed evaluator. No policies are seeded here, so evaluations fall through to
+ * the fail-safe default deny — proving the end-to-end wiring.
  *
- * <p>Uses a fake unsigned JWT for the {@code Authorization} header since signature verification is
- * deferred to Phase 3 (ADR-003).
+ * <p>Uses {@code @TestSecurity} to supply the authenticated identity (ADR-013).
+ * Tests without {@code @TestSecurity} verify that unauthenticated requests are rejected.
  */
 @QuarkusTest
 class EvaluationResourceTest {
 
-    private static final String AUTH = "Bearer " + fakeToken("test-user");
-
     @Test
+    @TestSecurity(user = "test-user")
     void evaluateWithNoApplicablePolicyDefaultsToDeny() {
-        given().header("Authorization", AUTH)
-                .contentType(ContentType.JSON)
+        given().contentType(ContentType.JSON)
                 .body("""
                         {
                           "action": "document:read",
@@ -49,9 +44,9 @@ class EvaluationResourceTest {
     }
 
     @Test
+    @TestSecurity(user = "test-user")
     void evaluateAcceptsSubjectAttributesWithoutError() {
-        given().header("Authorization", AUTH)
-                .contentType(ContentType.JSON)
+        given().contentType(ContentType.JSON)
                 .body("""
                         {
                           "action": "document:read",
@@ -63,7 +58,7 @@ class EvaluationResourceTest {
                 .post("/v1/evaluate")
                 .then()
                 .statusCode(200)
-                .body("allowed", equalTo(false)); // no policy seeded yet -> default deny
+                .body("allowed", equalTo(false));
     }
 
     @Test
@@ -82,9 +77,9 @@ class EvaluationResourceTest {
     }
 
     @Test
+    @TestSecurity(user = "test-user")
     void evaluateMissingActionReturns400() {
-        given().header("Authorization", AUTH)
-                .contentType(ContentType.JSON)
+        given().contentType(ContentType.JSON)
                 .body("""
                         {
                           "action": "",
@@ -99,9 +94,9 @@ class EvaluationResourceTest {
     }
 
     @Test
+    @TestSecurity(user = "test-user")
     void evaluateMissingResourceReturns400() {
-        given().header("Authorization", AUTH)
-                .contentType(ContentType.JSON)
+        given().contentType(ContentType.JSON)
                 .body("""
                         {
                           "action": "document:read"
@@ -115,9 +110,65 @@ class EvaluationResourceTest {
     }
 
     @Test
+    @TestSecurity(user = "test-user")
+    void evaluateExplicitSubjectEqualToCallerIsAllowed() {
+        given().contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "action": "document:read",
+                          "resource": {"type": "document", "id": "d1"},
+                          "subject": "test-user"
+                        }
+                        """)
+                .when()
+                .post("/v1/evaluate")
+                .then()
+                .statusCode(200)
+                .body("allowed", equalTo(false));
+    }
+
+    @Test
+    @TestSecurity(user = "caller")
+    void evaluateExplicitSubjectDifferentFromCallerWithoutDelegationReturns403() {
+        given().contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "action": "document:read",
+                          "resource": {"type": "document", "id": "d1"},
+                          "subject": "other-user"
+                        }
+                        """)
+                .when()
+                .post("/v1/evaluate")
+                .then()
+                .statusCode(403)
+                .body("error", equalTo("FORBIDDEN"));
+    }
+
+    @Test
+    @TestSecurity(
+            user = "caller",
+            roles = {"pdp-client"})
+    void evaluateExplicitSubjectDifferentFromCallerWithDelegationIsAllowed() {
+        given().contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "action": "document:read",
+                          "resource": {"type": "document", "id": "d1"},
+                          "subject": "other-user"
+                        }
+                        """)
+                .when()
+                .post("/v1/evaluate")
+                .then()
+                .statusCode(200)
+                .body("allowed", equalTo(false));
+    }
+
+    @Test
+    @TestSecurity(user = "test-user")
     void batchReturnsADecisionPerRequestAndGuardsBlankResource() {
-        given().header("Authorization", AUTH)
-                .contentType(ContentType.JSON)
+        given().contentType(ContentType.JSON)
                 .body("""
                         {
                           "requests": [
@@ -161,9 +212,9 @@ class EvaluationResourceTest {
     }
 
     @Test
+    @TestSecurity(user = "test-user")
     void permissionsReturnsEmptyListForNow() {
-        given().header("Authorization", AUTH)
-                .queryParam("app", "rh")
+        given().queryParam("app", "rh")
                 .when()
                 .get("/v1/permissions")
                 .then()
@@ -175,24 +226,8 @@ class EvaluationResourceTest {
     }
 
     @Test
+    @TestSecurity(user = "test-user")
     void permissionsWithoutAppReturns400() {
-        given().header("Authorization", AUTH)
-                .when()
-                .get("/v1/permissions")
-                .then()
-                .statusCode(400)
-                .body("error", equalTo("BAD_REQUEST"));
-    }
-
-    /**
-     * Builds a minimal unsigned JWT with the given subject for use in tests.
-     *
-     * <p>Signature verification is intentionally skipped until Phase 3 (ADR-003).
-     */
-    private static String fakeToken(String sub) {
-        Base64.Encoder enc = Base64.getUrlEncoder().withoutPadding();
-        String header = enc.encodeToString("{\"alg\":\"none\",\"typ\":\"JWT\"}".getBytes(StandardCharsets.UTF_8));
-        String payload = enc.encodeToString(("{\"sub\":\"" + sub + "\"}").getBytes(StandardCharsets.UTF_8));
-        return header + "." + payload + ".";
+        given().when().get("/v1/permissions").then().statusCode(400).body("error", equalTo("BAD_REQUEST"));
     }
 }

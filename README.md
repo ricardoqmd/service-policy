@@ -105,13 +105,70 @@ The full machine-readable spec lives in [docs/openapi.yaml](docs/openapi.yaml).
 | POST   | `/v1/evaluate/batch` | Batch of requests → list of `Decision`                 |
 | GET    | `/v1/permissions`    | Cacheable flat permission list for a subject + `?app=` |
 
-Subject is always resolved from `Authorization: Bearer <jwt>` — never from the request body.
-`GET /v1/permissions` responses are safe to cache per `subject + app + policyVersion`.
+### Authentication
+
+All data-plane and control-plane endpoints require a valid Bearer JWT. The token is validated
+via JWKS (signature, `iss`, `exp`, `aud`) using `quarkus-oidc` in bearer-only mode.
+
+```
+QUARKUS_OIDC_AUTH_SERVER_URL=https://your-idp/realms/default
+QUARKUS_OIDC_TOKEN_AUDIENCE=service-policy    # must match the aud claim
+```
+
+Subject is resolved from the validated `sub` claim (fallback: `preferred_username`).
+`/q/health` and `/info` are public. `GET /v1/permissions` responses are safe to cache
+per `subject + app + policyVersion`.
+
+### Authorization markers (ADR-013)
+
+Two authorization markers gate elevated operations. Each marker has a configurable **mode**
+(`role` or `scope`) so it maps cleanly to any IdP:
+
+|   Marker   | Default mode | Default value |                 Controls                 |
+|------------|--------------|---------------|------------------------------------------|
+| admin      | `role`       | `authz-admin` | `POST /v1/policies` (control plane)      |
+| delegation | `role`       | `pdp-client`  | Explicit `subject` ≠ caller (data plane) |
+
+**mode=role** (Keycloak default): the check is `identity.hasRole(configuredRole)`.
+The role claim location defaults to `realm_access/roles`; override for other IdPs:
+
+```
+QUARKUS_OIDC_ROLES_ROLE_CLAIM_PATH=roles          # Auth0 / Okta flat roles
+```
+
+**mode=scope** (Auth0 / Okta M2M tokens): the check splits the `scope` claim on whitespace
+and checks membership:
+
+```
+SERVICE_POLICY_AUTHZ_ADMIN_MODE=scope
+SERVICE_POLICY_AUTHZ_ADMIN_SCOPE=authz-admin
+SERVICE_POLICY_AUTHZ_DELEGATION_MODE=scope
+SERVICE_POLICY_AUTHZ_DELEGATION_SCOPE=pdp-client
+```
+
+The application **fails to start** if the active mode's value is missing or blank (fail-fast
+startup validation). An orphan field (e.g., `role` set while `mode=scope`) logs a `WARN` and
+is otherwise ignored.
+
+### Delegated queries (hybrid subject rule, ADR-013 §5)
+
+The `EvaluationRequest` body accepts an optional `subject` field for delegated queries:
+
+- Absent or equal to the caller's own `sub` → self-service (backwards compatible).
+- Different from the caller → requires the delegation marker; `403` otherwise.
+
+```json
+{ "action": "document:read",
+  "resource": {"type": "document", "id": "d1"},
+  "subject": "user-x" }
+```
 
 Relevant ADRs:
-[ADR-004 — contract surface & stub](docs/adr/004-pep-contract-surface-and-stub.md) ·
+[ADR-003 — authentication / OIDC](docs/adr/003-authentication-oidc-jwt-jwks.md) ·
+[ADR-004 — contract surface](docs/adr/004-pep-contract-surface-and-stub.md) ·
 [ADR-005 — attribute id/code keying](docs/adr/005-attribute-id-keying.md) ·
-[ADR-006 — tenancy model](docs/adr/006-tenancy-model.md)
+[ADR-006 — tenancy model](docs/adr/006-tenancy-model.md) ·
+[ADR-013 — PDP endpoint authorization](docs/adr/013-pdp-endpoint-authorization.md)
 
 ---
 
@@ -153,8 +210,8 @@ service-policy/
     ├── main/
     │   ├── docker/                  # Dockerfile.jvm / .legacy-jar / .native / .native-micro
     │   ├── java/io/github/ricardoqmd/servicepolicy/
-    │   │   ├── config/              # Typed config (ServicePolicyConfig, StubConfig)
-    │   │   ├── evaluation/          # Port + stub: PolicyEvaluator, StubPolicyEvaluator, DTOs
+    │   │   ├── config/              # Typed config (ServicePolicyConfig, AuthzConfigValidator)
+    │   │   ├── evaluation/          # Port: PolicyEvaluator, PersistentPolicyEvaluator, DTOs
     │   │   ├── health/              # Liveness / readiness checks
     │   │   └── rest/                # HTTP endpoints (EvaluateResource, PermissionsResource, …)
     │   └── resources/
@@ -173,8 +230,8 @@ service-policy/
 |---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
 | **1**   | **Skeleton.** Quarkus project, configuration, healthchecks, metrics, smoke tests, CI, Docker.                                                                                                   | ✅ Done  |
 | **1.5** | **PEP contract surface + deterministic stub.** REST endpoints live (`/v1/evaluate`, `/v1/evaluate/batch`, `GET /v1/permissions`), OpenAPI contract frozen; no persistence; no JWT verification. | ✅ Done  |
-| **2**   | **Domain & persistence.** Policy model, condition AST (Phase 2 future ADR), MongoDB integration; real `PolicyEvaluator` replaces the stub.                                                      | Planned |
-| **3**   | **JWT validation.** Keycloak JWKS; real subject + realm/tenant extraction ([ADR-006](docs/adr/006-tenancy-model.md)); stub removed.                                                             | Planned |
+| **2**   | **Domain & persistence.** Policy model, condition AST, MongoDB integration; real `PolicyEvaluator` replaces the stub; deny-overrides combining algorithm.                                       | ✅ Done  |
+| **3**   | **OIDC/JWKS validation.** Bearer-only resource server; mode-based authz markers (admin + delegation); hybrid subject-provenance rule; mandatory startup validation; stub removed.               | ✅ Done  |
 | **4**   | **Admin API / PAP.** Policy CRUD, versioning, audit log.                                                                                                                                        | Planned |
 | **5**   | **Production hardening.** TLS, secrets management, structured audit.                                                                                                                            | Planned |
 | **6**   | **Kubernetes.** Helm charts, ConfigMaps, NetworkPolicies, HPA.                                                                                                                                  | Planned |
