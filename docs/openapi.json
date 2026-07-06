@@ -98,6 +98,10 @@
             "type" : "object",
             "additionalProperties" : { },
             "description" : "Optional non-identity subject attributes asserted by the caller, e.g. {\"area\": \"A\"}."
+          },
+          "subject" : {
+            "type" : "string",
+            "description" : "Optional explicit subject; absent or equal to the caller's own sub → self (backwards compatible). Different from the caller requires the delegation marker (ADR-013)."
           }
         }
       },
@@ -226,7 +230,7 @@
     "/v1/evaluate" : {
       "post" : {
         "summary" : "Evaluate a single authorization request",
-        "description" : "Evaluates whether the authenticated subject may perform the requested action on the given resource. Subject is resolved from the Bearer JWT in the Authorization header. Returns HTTP 401 if the header is missing or malformed. Returns HTTP 400 if 'action' or 'resource.type' is blank.",
+        "description" : "Evaluates whether the authenticated subject may perform the requested action on the given resource. Subject is resolved from the validated Bearer JWT (ADR-013). An explicit 'subject' in the body enables delegated queries; 403 if the delegation marker is absent. Returns 401 if unauthenticated, 400 if 'action' or 'resource.type' is blank.",
         "tags" : [ "evaluation" ],
         "requestBody" : {
           "content" : {
@@ -247,16 +251,25 @@
               }
             }
           },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          },
           "400" : {
             "description" : "Bad Request"
           }
-        }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ ]
+        } ]
       }
     },
     "/v1/evaluate/batch" : {
       "post" : {
         "summary" : "Evaluate a batch of authorization requests",
-        "description" : "Evaluates multiple requests in a single call. Results are returned in the same order as the input requests. Requires a valid Bearer token in the Authorization header.",
+        "description" : "Evaluates multiple requests in a single call. Results are returned in the same order as the input requests. Per-item resource-validation errors are returned as deny decisions (not HTTP 400). A delegation violation on any item fails the entire batch with 403. Requires a valid Bearer token.",
         "tags" : [ "evaluation" ],
         "requestBody" : {
           "content" : {
@@ -277,16 +290,25 @@
               }
             }
           },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          },
           "400" : {
             "description" : "Bad Request"
           }
-        }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ ]
+        } ]
       }
     },
     "/v1/permissions" : {
       "get" : {
         "summary" : "List permitted actions for the authenticated subject",
-        "description" : "Returns a flat, cacheable list of actions the subject is permitted to perform within the given application context. Subject is resolved from the Bearer JWT in the Authorization header. The response is safe to cache per subject + app + policyVersion; the policyVersion field changes when policies are updated. Returns HTTP 401 if the Authorization header is missing or malformed. Returns HTTP 400 if the 'app' query parameter is missing or blank.",
+        "description" : "Returns a flat, cacheable list of actions the subject is permitted to perform within the given application context. Subject is resolved from the validated Bearer JWT (ADR-013). The response is safe to cache per subject + app + policyVersion; the policyVersion field changes when policies are updated. Returns 401 if unauthenticated. Returns 400 if the 'app' query parameter is missing.",
         "tags" : [ "permissions" ],
         "parameters" : [ {
           "name" : "app",
@@ -303,14 +325,23 @@
                 "schema" : { }
               }
             }
+          },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
           }
-        }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ ]
+        } ]
       }
     },
     "/v1/policies" : {
       "post" : {
         "summary" : "Create a policy",
-        "description" : "Creates a new active policy from the document-shaped body. Requires a Bearer token (HTTP 401 otherwise). Returns HTTP 400 if the body is malformed, or HTTP 409 if a policy with the same id already exists.",
+        "description" : "Creates a new active policy from the document-shaped body. Requires a valid Bearer token (401 otherwise) and the admin authorization marker (403 otherwise). Returns 400 if the body is malformed, or 409 if a policy with the same id already exists.",
         "tags" : [ "policies" ],
         "requestBody" : {
           "content" : {
@@ -332,10 +363,19 @@
               }
             }
           },
+          "401" : {
+            "description" : "Not Authorized"
+          },
+          "403" : {
+            "description" : "Not Allowed"
+          },
           "400" : {
             "description" : "Bad Request"
           }
-        }
+        },
+        "security" : [ {
+          "SecurityScheme" : [ ]
+        } ]
       }
     }
   },

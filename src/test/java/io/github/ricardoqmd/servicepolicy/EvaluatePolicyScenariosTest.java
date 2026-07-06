@@ -4,8 +4,6 @@ import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.List;
 
 import jakarta.inject.Inject;
@@ -25,6 +23,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyStore;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.security.TestSecurity;
 import io.restassured.http.ContentType;
 
 /**
@@ -35,13 +34,10 @@ import io.restassured.http.ContentType;
  * full chain (REST → JWT subject → PolicyStore → PolicySelector → PolicyEngine → Decision) against a
  * MongoDB started by Dev Services, and asserts the decision and its audit reason.
  *
- * <p>Uses a fake unsigned JWT (subject {@code test-user}) since signature verification is deferred
- * to Phase 3 (ADR-003).
+ * <p>Uses {@code @TestSecurity} to supply the authenticated identity (ADR-013).
  */
 @QuarkusTest
 class EvaluatePolicyScenariosTest {
-
-    private static final String AUTH = "Bearer " + fakeToken("test-user");
 
     @Inject
     PolicyStore policyStore;
@@ -61,9 +57,9 @@ class EvaluatePolicyScenariosTest {
     }
 
     @Test
+    @TestSecurity(user = "test-user")
     void permitWhenSubjectIsAnAssignee() {
-        given().header("Authorization", AUTH)
-                .contentType(ContentType.JSON)
+        given().contentType(ContentType.JSON)
                 .body("""
                         {
                           "action": "document:read",
@@ -81,9 +77,9 @@ class EvaluatePolicyScenariosTest {
     }
 
     @Test
+    @TestSecurity(user = "test-user")
     void permitWhenSubjectAreaMatchesResourceArea() {
-        given().header("Authorization", AUTH)
-                .contentType(ContentType.JSON)
+        given().contentType(ContentType.JSON)
                 .body("""
                         {
                           "action": "document:read",
@@ -100,10 +96,9 @@ class EvaluatePolicyScenariosTest {
     }
 
     @Test
+    @TestSecurity(user = "test-user")
     void denyWhenResourceSealedEvenIfSubjectIsAssignee() {
-        // deny-overrides: sealed-deny beats the assigned-access permit.
-        given().header("Authorization", AUTH)
-                .contentType(ContentType.JSON)
+        given().contentType(ContentType.JSON)
                 .body("""
                         {
                           "action": "document:read",
@@ -122,9 +117,9 @@ class EvaluatePolicyScenariosTest {
     }
 
     @Test
+    @TestSecurity(user = "test-user")
     void denyByDefaultWhenNoRuleMatches() {
-        given().header("Authorization", AUTH)
-                .contentType(ContentType.JSON)
+        given().contentType(ContentType.JSON)
                 .body("""
                         {
                           "action": "document:read",
@@ -144,11 +139,9 @@ class EvaluatePolicyScenariosTest {
     }
 
     @Test
+    @TestSecurity(user = "test-user")
     void missingSubjectAreaFallsThroughToDefaultDeny() {
-        // area-scope needs subject.attr.area; omitted here -> null does not equal "A" -> no match.
-        // An absent attribute means less privilege, never an error.
-        given().header("Authorization", AUTH)
-                .contentType(ContentType.JSON)
+        given().contentType(ContentType.JSON)
                 .body("""
                         {
                           "action": "document:read",
@@ -190,12 +183,5 @@ class EvaluatePolicyScenariosTest {
                 CombiningAlgorithm.DENY_OVERRIDES,
                 Effect.DENY,
                 List.of(assignedAccess, areaScope, sealedDeny));
-    }
-
-    private static String fakeToken(String sub) {
-        Base64.Encoder enc = Base64.getUrlEncoder().withoutPadding();
-        String header = enc.encodeToString("{\"alg\":\"none\",\"typ\":\"JWT\"}".getBytes(StandardCharsets.UTF_8));
-        String payload = enc.encodeToString(("{\"sub\":\"" + sub + "\"}").getBytes(StandardCharsets.UTF_8));
-        return header + "." + payload + ".";
     }
 }

@@ -7,15 +7,21 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
 /**
  * Incoming authorization evaluation request from a Policy Enforcement Point (PEP).
  *
- * <p>The subject identity is never carried here — it is resolved from the Bearer JWT. The caller
- * may, however, assert non-identity subject attributes via {@code subjectAttributes}, a flat bag
- * sibling to {@code context} (ADR-010). An absent bag means the subject has no asserted
- * attributes (less privilege), not an error.
+ * <p>Subject identity is resolved from the validated Bearer JWT by default (ADR-010).
+ * An explicit {@code subject} may be provided for delegated queries (ADR-013 §5):
+ * absent or equal to the caller's own {@code sub} → self; different from the caller →
+ * the delegation marker is required or the request is rejected with 403.
+ *
+ * <p>Non-identity subject attributes may be asserted via {@code subjectAttributes}, a flat
+ * bag sibling to {@code context}. An absent bag means the subject has no asserted attributes
+ * (less privilege), not an error.
  *
  * @param action            Action to authorize in {@code resource:verb} format (e.g. {@code document:read}).
  * @param resource          Target resource being accessed.
  * @param context           Optional runtime context attributes (e.g. {@code {"emergency": true}}).
  * @param subjectAttributes Optional non-identity subject attributes asserted by the caller (e.g. {@code {"area": "A"}}).
+ * @param subject           Optional explicit subject; absent or equal to the caller's own {@code sub} → self.
+ *                          Different from the caller requires the delegation marker (ADR-013).
  */
 @Schema(description = "Authorization evaluation request from a PEP.")
 public record EvaluationRequest(
@@ -31,4 +37,10 @@ public record EvaluationRequest(
         @Schema(
                 description =
                         "Optional non-identity subject attributes asserted by the caller, e.g. {\"area\": \"A\"}.")
-        Map<String, Object> subjectAttributes) {}
+        Map<String, Object> subjectAttributes,
+
+        @Schema(
+                description =
+                        "Optional explicit subject; absent or equal to the caller's own sub → self (backwards compatible). "
+                                + "Different from the caller requires the delegation marker (ADR-013).")
+        String subject) {}

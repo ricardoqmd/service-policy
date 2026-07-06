@@ -17,6 +17,18 @@ quarkus:
     # Response compression (gzip) for JSON payloads.
     enable-compression: true
 
+  # ─── OIDC: bearer-only resource server (ADR-013) ───────────
+  # Override via env vars: QUARKUS_OIDC_AUTH_SERVER_URL, QUARKUS_OIDC_TOKEN_AUDIENCE.
+  # /q/health and /info are public (no @Authenticated on those resources).
+  oidc:
+    auth-server-url: ${QUARKUS_OIDC_AUTH_SERVER_URL:https://auth.example.com/realms/default}
+    application-type: service
+    token:
+      audience: ${QUARKUS_OIDC_TOKEN_AUDIENCE:service-policy}
+    roles:
+      # Keycloak default; override for other IdPs (e.g. Auth0 sets roles in a different claim).
+      role-claim-path: realm_access/roles
+
   # MongoDB — Dev Services starts a throwaway MongoDB for dev/test (Docker required).
   mongodb:
     database: service_policy
@@ -74,12 +86,25 @@ service-policy:
     name: "Service Policy"
     description: "Open source ABAC Policy Decision Point"
     repository: "https://github.com/ricardoqmd/service-policy"
+  # Authorization markers (ADR-013). mode: role | scope.
+  # Override role/scope names via env vars, e.g. SERVICE_POLICY_AUTHZ_ADMIN_ROLE=my-admin.
+  authz:
+    admin:
+      mode: role
+      role: authz-admin
+    delegation:
+      mode: role
+      role: pdp-client
 
 # ═════════════════════════════════════════════════════════════
 # Profile: dev  (active when running `./mvnw quarkus:dev`)
 # ═════════════════════════════════════════════════════════════
 "%dev":
   quarkus:
+    oidc:
+      # Disabled by default in dev; set QUARKUS_OIDC_ENABLED=true and
+      # QUARKUS_OIDC_AUTH_SERVER_URL=<your-idp> to enable OIDC locally.
+      enabled: false
     log:
       level: DEBUG
       # Human-readable plain-text logs in dev (override JSON default).
@@ -91,6 +116,10 @@ service-policy:
 # ═════════════════════════════════════════════════════════════
 "%test":
   quarkus:
+    oidc:
+      # Disabled in tests: @TestSecurity from quarkus-test-security supplies the
+      # security identity and JWT claims without a real OIDC server.
+      enabled: false
     log:
       level: WARN
       category:

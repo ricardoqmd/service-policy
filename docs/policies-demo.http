@@ -1,17 +1,20 @@
 ### Service Policy — demo: author a policy over HTTP, then evaluate against it.
 ### Open in VS Code (REST Client) or IntelliJ HTTP Client and run each request top-down.
-### Start the app first:  ./mvnw quarkus:dev   (Docker must be running for MongoDB)
+### Start the app first:  ./mvnw quarkus:dev   (Docker must be running for MongoDB + OIDC)
+###
+### Two token variables are used (ADR-013):
+###   {{admin_jwt}}  — a token whose OIDC role/scope satisfies the admin marker
+###                    (default: role "authz-admin"). Needed for POST /v1/policies.
+###   {{jwt}}        — any valid authenticated token. Used for evaluation.
+### See "How to obtain tokens" at the bottom.
 
 @host = http://localhost:8080
-
-# The demo uses a fake UNSIGNED JWT (sub=test-user); signature verification is stubbed
-# until Phase 3 (ADR-003). The token is NOT stored in this file — provide it locally.
-# See "How to get {{jwt}}" at the bottom.
+@auth_admin = Bearer {{admin_jwt}}
 @auth = Bearer {{jwt}}
 
-### 1) Create the neutral "document" policy (active on create)
+### 1) Create the neutral "document" policy (requires admin marker — authz-admin role)
 POST {{host}}/v1/policies
-Authorization: {{auth}}
+Authorization: {{auth_admin}}
 Content-Type: application/json
 
 {
@@ -34,7 +37,7 @@ Content-Type: application/json
   ]
 }
 
-### 2) PERMIT — the subject is an assignee
+### 2) PERMIT — the subject is an assignee (replace "test-user" with the sub from your JWT)
 POST {{host}}/v1/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
@@ -76,9 +79,21 @@ Content-Type: application/json
   "subjectAttributes": {"area": "A"}
 }
 
-### 6) CONFLICT — creating the same policyId again returns 409
-POST {{host}}/v1/policies
+### 6) DELEGATED QUERY — service-a (with pdp-client delegation marker) queries for user-x
+### Replace "user-x" with any sub known to your policy data. 403 if caller lacks pdp-client.
+POST {{host}}/v1/evaluate
 Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "action": "document:read",
+  "resource": {"type": "document", "id": "d5"},
+  "subject": "user-x"
+}
+
+### 7) CONFLICT — creating the same policyId again returns 409
+POST {{host}}/v1/policies
+Authorization: {{auth_admin}}
 Content-Type: application/json
 
 {
@@ -95,14 +110,14 @@ Content-Type: application/json
   ]
 }
 
-### 7) YOUR TURN — template to author your own policy.
+### 8) YOUR TURN — template to author your own policy.
 ### Change policyId/resourceType/rules and run. Then evaluate against it (like #2-#5).
 ### Operators: EQ, NEQ, IN, NOT_IN, GT, GTE, LT, LTE.
 ### Operands: {"ref": "<path>"} (subject.id | subject.attr.* | resource.type | resource.id |
 ###           resource.attr.* | context.*) or {"value": <literal>}.
 ### Composites: {"type": "and"|"or", "conditions": [ ... ]}.
 POST {{host}}/v1/policies
-Authorization: {{auth}}
+Authorization: {{auth_admin}}
 Content-Type: application/json
 
 {
@@ -120,19 +135,29 @@ Content-Type: application/json
 }
 
 ###############################################################################
-### How to get {{jwt}} for the demo
+### How to obtain tokens (ADR-013)
 ###
-### It is a FAKE, UNSIGNED token (sub=test-user) — dev/stub only, never for prod.
+### In production: obtain a Bearer token from your configured OIDC provider.
+### Set the OIDC server URL: QUARKUS_OIDC_AUTH_SERVER_URL=<your-idp>
+###
+### Admin token (for policy authoring):
+###   The token must carry the admin marker. By default, mode=role and the
+###   required role is "authz-admin" (override: SERVICE_POLICY_AUTHZ_ADMIN_ROLE).
+###   For Auth0 / Okta M2M tokens: set mode=scope and SERVICE_POLICY_AUTHZ_ADMIN_SCOPE.
+###
+### Delegation token (for delegated queries via the "subject" field):
+###   The token must carry the delegation marker. By default, mode=role and the
+###   required role is "pdp-client" (override: SERVICE_POLICY_AUTHZ_DELEGATION_ROLE).
 ###
 ### VS Code REST Client — create docs/http-client.env.json (git-ignored):
-###   { "dev": { "jwt": "<paste the token generated below>" } }
+###   {
+###     "dev": {
+###       "admin_jwt": "<admin token from your IdP>",
+###       "jwt":       "<regular user token from your IdP>"
+###     }
+###   }
 ###   then pick the "dev" environment in the status bar.
 ###
 ### IntelliJ HTTP Client — create http-client.private.env.json (git-ignored):
-###   { "dev": { "jwt": "<paste the token>" } }
-###
-### Generate the token (bash):
-###   H=$(printf '%s' '{"alg":"none","typ":"JWT"}' | base64 | tr '+/' '-_' | tr -d '=')
-###   P=$(printf '%s' '{"sub":"test-user"}'        | base64 | tr '+/' '-_' | tr -d '=')
-###   echo "$H.$P."
+###   { "dev": { "admin_jwt": "<admin token>", "jwt": "<user token>" } }
 ###############################################################################
