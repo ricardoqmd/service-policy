@@ -34,7 +34,7 @@ public class AuthzConfigValidator {
     private void validate(String name, ServicePolicyConfig.Marker marker) {
         switch (marker.mode()) {
             case ROLE -> {
-                if (marker.role().isEmpty() || marker.role().get().isBlank()) {
+                if (marker.role().filter(r -> !r.isBlank()).isEmpty()) {
                     throw new IllegalStateException(
                             "service-policy.authz." + name + ".role must be set when mode=role");
                 }
@@ -45,7 +45,7 @@ public class AuthzConfigValidator {
                                 name));
             }
             case SCOPE -> {
-                if (marker.scope().isEmpty() || marker.scope().get().isBlank()) {
+                if (marker.scope().filter(s -> !s.isBlank()).isEmpty()) {
                     throw new IllegalStateException(
                             "service-policy.authz." + name + ".scope must be set when mode=scope");
                 }
