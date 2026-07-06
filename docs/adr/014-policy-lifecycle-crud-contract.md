@@ -41,32 +41,32 @@ Reading policy definitions is a control-plane operation, not a public one.
 
 **3. Read surface.**
 - `GET /v1/policies` — list of **active heads**: one entry per policy (its active
-  version, or none). Filter `?resourceType=`. Offset pagination `?page=&size=`.
+version, or none). Filter `?resourceType=`. Offset pagination `?page=&size=`.
 - `GET /v1/policies/{id}` — the **active** version of the policy; `404` if the policy
-  has no active version.
+has no active version.
 - `GET /v1/policies/{id}/versions` — version history, newest first.
 - `GET /v1/policies/{id}/versions/{version}` — a specific immutable version.
 
 **4. Write surface — versions are append-only, activation is explicit.**
 - `POST /v1/policies` — create a **new** policy at `version 1`, **inactive** (refines
-  ADR-012: no longer auto-active). `409` if the id already exists.
+ADR-012: no longer auto-active). `409` if the id already exists.
 - `PUT /v1/policies/{id}` — append the next version (`N+1`) with new content,
-  **inactive**. The body declares `baseVersion` = the version the author forked from;
-  if the current highest version ≠ `baseVersion`, `409` (optimistic concurrency —
-  prevents lost updates between two admins). Existing versions are never mutated.
+**inactive**. The body declares `baseVersion` = the version the author forked from;
+if the current highest version ≠ `baseVersion`, `409` (optimistic concurrency —
+prevents lost updates between two admins). Existing versions are never mutated.
 - `POST /v1/policies/{id}/activate` — body `{ version }`. The **single** path by which
-  any version becomes active; enforces the **≤1-active-per-policy** invariant.
+any version becomes active; enforces the **≤1-active-per-policy** invariant.
 - `POST /v1/policies/{id}/deactivate` — retire the active version: the policy stops
-  governing, history is preserved. There is **no hard delete** (LFPDPPP / NOM-024:
-  policy history is audit evidence).
+governing, history is preserved. There is **no hard delete** (LFPDPPP / NOM-024:
+policy history is audit evidence).
 
 **5. Optional review gate (the "required by architecture" seam).**
 `service-policy.authz.review.required` (default `false`).
 - `false` → an author may activate their own versions (frictionless; the lone-developer
-  and self-approval cases).
+and self-approval cases).
 - `true` → `activate` returns `403` when the caller equals the target version's
-  `createdBy` (four-eyes). No dedicated reviewer role is introduced — the existing admin
-  marker held by a *different* identity is the gate.
+`createdBy` (four-eyes). No dedicated reviewer role is introduced — the existing admin
+marker held by a *different* identity is the gate.
 
 **6. Audit metadata (persistence side, not domain).** Each version stores `createdBy`
 (the validated caller `sub`, ADR-013), `createdAt`, and an optional `changeReason` from
@@ -166,3 +166,4 @@ to optimize a rare write — the wrong trade for a read-dominated PDP.
 - Offset pagination strains at scale → move `GET /v1/policies` to cursor pagination.
 - Reads must be visible to non-admin operators → split a read-only marker from the admin
   marker (today all `/v1/policies*` share the admin gate per ADR-013 §4).
+
