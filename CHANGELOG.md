@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/ricardoqmd/service-policy/compare/v0.1.11...v0.1.12) (2026-07-06)
+
+
+### Documentation
+
+* add ADR-014 for policy lifecycle and CRUD contract ([#52](https://github.com/ricardoqmd/service-policy/issues/52)) ([2b44012](https://github.com/ricardoqmd/service-policy/commit/2b44012c28addd714a30a1dcccfb1d3d9ce29a55))
+
 ## [0.1.11](https://github.com/ricardoqmd/service-policy/compare/v0.1.10...v0.1.11) (2026-07-06)
 
 
