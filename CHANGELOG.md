@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.11](https://github.com/ricardoqmd/service-policy/compare/v0.1.10...v0.1.11) (2026-07-06)
+
+
+### Features
+
+* **security:** real OIDC/JWKS validation with mode-based authz markers ([#49](https://github.com/ricardoqmd/service-policy/issues/49)) ([c6f8fb3](https://github.com/ricardoqmd/service-policy/commit/c6f8fb380224816ddaaf669287eb3c3ab37a782d))
+
 ## [0.1.10](https://github.com/ricardoqmd/service-policy/compare/v0.1.9...v0.1.10) (2026-07-05)
 
 
