@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.17](https://github.com/ricardoqmd/service-policy/compare/v0.1.16...v0.1.17) (2026-07-07)
+
+
+### Documentation
+
+* add ADR-019 transaction-free write atomicity ([#71](https://github.com/ricardoqmd/service-policy/issues/71)) ([0cc055c](https://github.com/ricardoqmd/service-policy/commit/0cc055c3f61607d39c1521d693bdc101ee9c734b))
+
 ## [0.1.16](https://github.com/ricardoqmd/service-policy/compare/v0.1.15...v0.1.16) (2026-07-07)
 
 
