@@ -25,6 +25,7 @@ both are kept for the audit trail.
 | [014](014-policy-lifecycle-crud-contract.md) | Policy lifecycle and CRUD contract (`/v1/policies`)                                      | Accepted |
 | [015](015-openapi-not-versioned.md)          | Do not version the generated OpenAPI specification                                       | Accepted |
 | [016](016-head-pointer-activation.md)        | Head-pointer activation model                                                            | Accepted |
+| [017](017-rest-response-contract.md)         | REST response contract — collection envelope, pagination, error shape                    | Accepted |
 
 ## Relationships
 
@@ -35,6 +36,8 @@ both are kept for the audit trail.
 - **ADR-004** defined the Phase 1.5 PEP contract surface with a stub evaluator;
   the persistent evaluator that replaced the stub is covered by ADR-008 and
   ADR-010.
+- **ADR-017** sets the REST response contract (collection envelope, pagination,
+  error shape) for the read/list surface introduced by ADR-014's lifecycle.
 
 ## Notes
 
