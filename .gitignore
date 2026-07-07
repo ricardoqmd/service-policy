@@ -81,3 +81,5 @@ coverage/
 
 http-client.env.json
 http-client.private.env.json
+docs/openapi.json
+docs/openapi.yaml
