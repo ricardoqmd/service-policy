@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.13](https://github.com/ricardoqmd/service-policy/compare/v0.1.12...v0.1.13) (2026-07-07)
+
+
+### Documentation
+
+* add ADR-015, ADR-016, and an ADR index ([#57](https://github.com/ricardoqmd/service-policy/issues/57)) ([436d539](https://github.com/ricardoqmd/service-policy/commit/436d5392796cc4bafad7cde79e0566832aaf1995))
+
 ## [0.1.12](https://github.com/ricardoqmd/service-policy/compare/v0.1.11...v0.1.12) (2026-07-06)
 
 
