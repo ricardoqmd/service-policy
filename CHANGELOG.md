@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.16](https://github.com/ricardoqmd/service-policy/compare/v0.1.15...v0.1.16) (2026-07-07)
+
+
+### Documentation
+
+* add ADR-018 contract (RFC 9457 + conditional writes) ([#68](https://github.com/ricardoqmd/service-policy/issues/68)) ([c8eaf7c](https://github.com/ricardoqmd/service-policy/commit/c8eaf7c211c14a3e0cb51c64c0d97bd0a7e58a78))
+
 ## [0.1.15](https://github.com/ricardoqmd/service-policy/compare/v0.1.14...v0.1.15) (2026-07-07)
 
 
