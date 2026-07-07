@@ -7,25 +7,27 @@ both are kept for the audit trail.
 
 **Status legend:** Proposed · Accepted · Superseded · Deprecated
 
-|                      #                       |                                         Decision                                         |  Status  |
-|----------------------------------------------|------------------------------------------------------------------------------------------|----------|
-| [001](001-dedicated-abac-pdp.md)             | Dedicated ABAC Policy Decision Point                                                     | Accepted |
-| [002](002-quarkus-java21.md)                 | Quarkus 3.x LTS + Java 21                                                                | Accepted |
-| [003](003-authentication-oidc-jwt-jwks.md)   | Authentication input — OIDC/JWT validated via JWKS (IdP-agnostic; Keycloak as reference) | Accepted |
-| [004](004-pep-contract-surface-and-stub.md)  | PEP contract surface and stub evaluator (Phase 1.5)                                      | Accepted |
-| [005](005-attribute-id-keying.md)            | Policy attributes key on stable id/code, never display text                              | Accepted |
-| [006](006-tenancy-model.md)                  | Tenancy model — tenant = institution = realm; silo deployment; rules as config           | Accepted |
-| [007](007-sonarqube-cloud-public-repo.md)    | SonarQube Cloud for the public repository                                                | Accepted |
-| [008](008-mvp-policy-domain.md)              | MVP policy domain                                                                        | Accepted |
-| [009](009-test-coverage-tooling.md)          | Test coverage tooling and CDI scope convention                                           | Accepted |
-| [010](010-subject-attribute-provenance.md)   | Subject attribute provenance: caller-asserted, behind a port                             | Accepted |
-| [011](011-null-operand-semantics.md)         | Null operand semantics in condition comparisons                                          | Accepted |
-| [012](012-policy-authoring-contract.md)      | Policy authoring contract (`POST /v1/policies`)                                          | Accepted |
-| [013](013-pdp-endpoint-authorization.md)     | PDP endpoint authorization and subject provenance                                        | Accepted |
-| [014](014-policy-lifecycle-crud-contract.md) | Policy lifecycle and CRUD contract (`/v1/policies`)                                      | Accepted |
-| [015](015-openapi-not-versioned.md)          | Do not version the generated OpenAPI specification                                       | Accepted |
-| [016](016-head-pointer-activation.md)        | Head-pointer activation model                                                            | Accepted |
-| [017](017-rest-response-contract.md)         | REST response contract — collection envelope, pagination, error shape                    | Accepted |
+|                       #                        |                                         Decision                                         |  Status  |
+|------------------------------------------------|------------------------------------------------------------------------------------------|----------|
+| [001](001-dedicated-abac-pdp.md)               | Dedicated ABAC Policy Decision Point                                                     | Accepted |
+| [002](002-quarkus-java21.md)                   | Quarkus 3.x LTS + Java 21                                                                | Accepted |
+| [003](003-authentication-oidc-jwt-jwks.md)     | Authentication input — OIDC/JWT validated via JWKS (IdP-agnostic; Keycloak as reference) | Accepted |
+| [004](004-pep-contract-surface-and-stub.md)    | PEP contract surface and stub evaluator (Phase 1.5)                                      | Accepted |
+| [005](005-attribute-id-keying.md)              | Policy attributes key on stable id/code, never display text                              | Accepted |
+| [006](006-tenancy-model.md)                    | Tenancy model — tenant = institution = realm; silo deployment; rules as config           | Accepted |
+| [007](007-sonarqube-cloud-public-repo.md)      | SonarQube Cloud for the public repository                                                | Accepted |
+| [008](008-mvp-policy-domain.md)                | MVP policy domain                                                                        | Accepted |
+| [009](009-test-coverage-tooling.md)            | Test coverage tooling and CDI scope convention                                           | Accepted |
+| [010](010-subject-attribute-provenance.md)     | Subject attribute provenance: caller-asserted, behind a port                             | Accepted |
+| [011](011-null-operand-semantics.md)           | Null operand semantics in condition comparisons                                          | Accepted |
+| [012](012-policy-authoring-contract.md)        | Policy authoring contract (`POST /v1/policies`)                                          | Accepted |
+| [013](013-pdp-endpoint-authorization.md)       | PDP endpoint authorization and subject provenance                                        | Accepted |
+| [014](014-policy-lifecycle-crud-contract.md)   | Policy lifecycle and CRUD contract (`/v1/policies`)                                      | Accepted |
+| [015](015-openapi-not-versioned.md)            | Do not version the generated OpenAPI specification                                       | Accepted |
+| [016](016-head-pointer-activation.md)          | Head-pointer activation model                                                            | Accepted |
+| [017](017-rest-response-contract.md)           | REST response contract — collection envelope, pagination, error shape                    | Accepted |
+| [018](018-error-response-contract.md)          | Error response contract — RFC 9457 problem+json, conditional writes (If-Match/ETag)      | Accepted |
+| [019](019-transaction-free-write-atomicity.md) | Transaction-free write atomicity — commit-point + self-healing                           | Accepted |
 
 ## Relationships
 
@@ -33,6 +35,14 @@ both are kept for the audit trail.
   transactional `active` flag (two-document write, replica set required) to a
   denormalized head-pointer (single-document atomic write, standalone Mongo). The
   rest of ADR-014's lifecycle/CRUD contract stands.
+- **ADR-018 revises ADR-014 and ADR-017.** The optimistic-concurrency transport
+  moved from a body-carried `baseVersion` (→ 409) to conditional requests via
+  `If-Match`/ETag = `revision` (→ 412/428), and the flat error shape was replaced by
+  RFC 9457 `application/problem+json` across the whole error surface.
+- **ADR-019 refines ADR-016.** ADR-016 made activation a single-document write;
+  ADR-019 extends the same "single commit point + idempotent writes" principle to
+  create (head-first) and append (compare-and-set on `revision`), which each touch
+  two documents, so standalone Mongo stays sufficient for writes too.
 - **ADR-004** defined the Phase 1.5 PEP contract surface with a stub evaluator;
   the persistent evaluator that replaced the stub is covered by ADR-008 and
   ADR-010.
