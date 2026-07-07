@@ -17,15 +17,15 @@ One exception: **unauthenticated** requests (`401`) are rejected by the
 authentication layer as a `WWW-Authenticate` challenge with **no** problem+json
 body. Everything else below is problem+json.
 
-| `code` | HTTP | When |
-|---|---|---|
-| [`POLICY_ALREADY_EXISTS`](#policy-already-exists) | 409 | Creating a policy whose id is taken |
-| [`INVALID_POLICY`](#invalid-policy) | 400 | The policy document failed validation |
-| [`PRECONDITION_REQUIRED`](#precondition-required) | 428 | A conditional write arrived without `If-Match` |
-| [`PRECONDITION_FAILED`](#precondition-failed) | 412 | The `If-Match` ETag is stale |
-| [`POLICY_NOT_FOUND`](#policy-not-found) | 404 | The referenced policy does not exist |
-| [`VERSION_NOT_FOUND`](#version-not-found) | 404 | The referenced version does not exist |
-| [`FORBIDDEN`](#forbidden) | 403 | The caller lacks the required authorization marker |
+|                      `code`                       | HTTP |                        When                        |
+|---------------------------------------------------|------|----------------------------------------------------|
+| [`POLICY_ALREADY_EXISTS`](#policy-already-exists) | 409  | Creating a policy whose id is taken                |
+| [`INVALID_POLICY`](#invalid-policy)               | 400  | The policy document failed validation              |
+| [`PRECONDITION_REQUIRED`](#precondition-required) | 428  | A conditional write arrived without `If-Match`     |
+| [`PRECONDITION_FAILED`](#precondition-failed)     | 412  | The `If-Match` ETag is stale                       |
+| [`POLICY_NOT_FOUND`](#policy-not-found)           | 404  | The referenced policy does not exist               |
+| [`VERSION_NOT_FOUND`](#version-not-found)         | 404  | The referenced version does not exist              |
+| [`FORBIDDEN`](#forbidden)                         | 403  | The caller lacks the required authorization marker |
 
 ---
 
@@ -209,3 +209,4 @@ re-authenticate. The identity needs the appropriate role or scope.
   "detail": "Admin marker required."
 }
 ```
+

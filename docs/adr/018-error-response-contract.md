@@ -59,6 +59,7 @@ Example:
 HTTP/1.1 409 Conflict
 Content-Type: application/problem+json
 ```
+
 ```json
 {
   "type": "https://github.com/ricardoqmd/service-policy/blob/main/docs/ERRORS.md#policy-already-exists",
@@ -105,16 +106,16 @@ Its only conflict is a duplicate id → 409 `POLICY_ALREADY_EXISTS`.
 
 ### 4. Case → status → code map (full surface)
 
-| Case | HTTP | `code` | Extension members |
-|---|---|---|---|
-| Create duplicate id | 409 | `POLICY_ALREADY_EXISTS` | `policyId` |
-| Invalid document (POST/PUT) | 400 | `INVALID_POLICY` | `invalidParams[]` |
-| Write missing `If-Match` | 428 | `PRECONDITION_REQUIRED` | — |
-| Write with stale `If-Match` | 412 | `PRECONDITION_FAILED` | `policyId`, `currentRevision` |
-| Write to missing policy | 404 | `POLICY_NOT_FOUND` | `policyId` |
-| Activate missing version (S3) | 404 | `VERSION_NOT_FOUND` | `policyId`, `requestedVersion` |
-| Admin marker absent | 403 | `FORBIDDEN` | — |
-| Unauthenticated | 401 | *(OIDC challenge, no body)* | — |
+|             Case              | HTTP |           `code`            |       Extension members        |
+|-------------------------------|------|-----------------------------|--------------------------------|
+| Create duplicate id           | 409  | `POLICY_ALREADY_EXISTS`     | `policyId`                     |
+| Invalid document (POST/PUT)   | 400  | `INVALID_POLICY`            | `invalidParams[]`              |
+| Write missing `If-Match`      | 428  | `PRECONDITION_REQUIRED`     | —                              |
+| Write with stale `If-Match`   | 412  | `PRECONDITION_FAILED`       | `policyId`, `currentRevision`  |
+| Write to missing policy       | 404  | `POLICY_NOT_FOUND`          | `policyId`                     |
+| Activate missing version (S3) | 404  | `VERSION_NOT_FOUND`         | `policyId`, `requestedVersion` |
+| Admin marker absent           | 403  | `FORBIDDEN`                 | —                              |
+| Unauthenticated               | 401  | *(OIDC challenge, no body)* | —                              |
 
 `invalidParams` is a list of `{ field, reason }`. The contract is an array from day
 one; emitting more than one entry (accumulating all validation errors instead of
@@ -206,3 +207,4 @@ resolvable without hosting infrastructure (they point at the repo blob).
   canonical error documentation site → promote `docs/ERRORS.md` to Pages.
 - A write operation appears whose concurrency scope genuinely differs from "any head
   mutation" → reconsider a per-operation token instead of the single `revision` ETag.
+
