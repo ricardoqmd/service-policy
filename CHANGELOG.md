@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.15](https://github.com/ricardoqmd/service-policy/compare/v0.1.14...v0.1.15) (2026-07-07)
+
+
+### Features
+
+* policy read endpoints over head-pointer model ([#65](https://github.com/ricardoqmd/service-policy/issues/65)) ([c109616](https://github.com/ricardoqmd/service-policy/commit/c10961641bea8c3819111959e4d2db48903243ce))
+
 ## [0.1.14](https://github.com/ricardoqmd/service-policy/compare/v0.1.13...v0.1.14) (2026-07-07)
 
 
