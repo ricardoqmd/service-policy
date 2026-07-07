@@ -46,24 +46,24 @@ Replace the mutable `active` flag with a **head-pointer** model:
 
 Operations:
 - **create (first write of a new `policyId`):** write the head first with
-  `activeVersion=null`, then write the first immutable version. **Idempotent:** a
-  retry detects an existing head / orphan version and completes the pair instead
-  of duplicating. See the orphan discussion under Consequences.
+`activeVersion=null`, then write the first immutable version. **Idempotent:** a
+retry detects an existing head / orphan version and completes the pair instead
+of duplicating. See the orphan discussion under Consequences.
 - **new version of an existing policy:** the head already exists; write the
-  immutable version. If it is to become active, `activate` updates the head. (So
-  "head-first" is the rule for the *first* write of a `policyId`, not for every
-  version write.)
+immutable version. If it is to become active, `activate` updates the head. (So
+"head-first" is the rule for the *first* write of a `policyId`, not for every
+version write.)
 - **activate(policyId, version):** single-document update on the head
-  (`activeVersion`, `activeContent` copied from the immutable version, `revision`
-  bumped). Atomic by MongoDB's single-document guarantee — **no transaction, no
-  replica set**, works on standalone Mongo.
+(`activeVersion`, `activeContent` copied from the immutable version, `revision`
+bumped). Atomic by MongoDB's single-document guarantee — **no transaction, no
+replica set**, works on standalone Mongo.
 - **deactivate:** single-document update on the head.
 - **optimistic concurrency:** compare-and-set on `revision`
-  (`updateOne({_id, revision:r}, {$set:{…, revision:r+1}})`); the loser matches 0
-  documents → 409. No transaction needed.
+(`updateOne({_id, revision:r}, {$set:{…, revision:r+1}})`); the loser matches 0
+documents → 409. No transaction needed.
 - **evaluation read (hot path):** query `policy_heads` by `{resourceType}` — one
-  indexed query returning one document per active policy, matching the previous
-  read shape and latency.
+indexed query returning one document per active policy, matching the previous
+read shape and latency.
 
 The replica set is **no longer a requirement** of this repository. Deployments may
 run standalone Mongo. (Running a replica set for other reasons, e.g. HA, remains
