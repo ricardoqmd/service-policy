@@ -1,0 +1,186 @@
+package io.github.ricardoqmd.servicepolicy.persistence;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.List;
+import java.util.Optional;
+
+import jakarta.inject.Inject;
+
+import org.bson.Document;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import io.github.ricardoqmd.servicepolicy.domain.policy.AttributeRef;
+import io.github.ricardoqmd.servicepolicy.domain.policy.CombiningAlgorithm;
+import io.github.ricardoqmd.servicepolicy.domain.policy.Comparison;
+import io.github.ricardoqmd.servicepolicy.domain.policy.Effect;
+import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
+import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
+import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
+import io.quarkus.test.junit.QuarkusTest;
+
+/**
+ * Read-path tests for {@link PolicyLifecycleStore} over the head-pointer model (ADR-016). Seeds
+ * {@code policy_heads} and {@code policy_versions} documents directly (writes land in later slices)
+ * and asserts pagination, ordering, active-only filtering, and single lookups against Dev Services
+ * MongoDB.
+ */
+@QuarkusTest
+class PolicyLifecycleStoreTest {
+
+    @Inject
+    PolicyLifecycleStore store;
+
+    @Inject
+    PolicyHeadRepository headRepository;
+
+    @Inject
+    PolicyVersionRepository versionRepository;
+
+    private final PolicyDocumentMapper contentMapper = new PolicyDocumentMapper(new ConditionDocumentMapper());
+
+    @BeforeEach
+    void clean() {
+        headRepository.deleteAll();
+        versionRepository.deleteAll();
+    }
+
+    @Test
+    void findsActiveHeadsOrderedByPolicyIdAndPaged() {
+        seedHead("p-b", 2, 3, policy("p-b", 2));
+        seedHead("p-a", 1, 1, policy("p-a", 1));
+
+        assertEquals(2, store.countActiveHeads());
+
+        List<PolicyHead> firstPage = store.findActiveHeads(0, 1);
+        assertEquals(1, firstPage.size());
+        assertEquals("p-a", firstPage.get(0).policyId()); // ascending by policyId
+        assertEquals(1, firstPage.get(0).activeVersion());
+        assertEquals("document", firstPage.get(0).resourceType());
+        assertNotNull(firstPage.get(0).activeContent());
+        assertEquals("u-1", firstPage.get(0).audit().createdBy());
+
+        List<PolicyHead> secondPage = store.findActiveHeads(1, 1);
+        assertEquals(1, secondPage.size());
+        assertEquals("p-b", secondPage.get(0).policyId());
+    }
+
+    @Test
+    void excludesInactiveHeadsFromActiveListButFindHeadReturnsThem() {
+        seedHead("draft", null, 0, null);
+
+        assertEquals(0, store.countActiveHeads());
+        assertTrue(store.findActiveHeads(0, 20).isEmpty());
+
+        Optional<PolicyHead> draft = store.findHead("draft");
+        assertTrue(draft.isPresent());
+        assertNull(draft.get().activeVersion());
+        assertNull(draft.get().activeContent());
+    }
+
+    @Test
+    void findsHeadById() {
+        seedHead("p-a", 1, 5, policy("p-a", 1));
+
+        Optional<PolicyHead> head = store.findHead("p-a");
+        assertTrue(head.isPresent());
+        assertEquals(5, head.get().revision());
+        assertEquals(1, head.get().activeVersion());
+        assertEquals("seed", head.get().audit().changeReason());
+    }
+
+    @Test
+    void findHeadIsEmptyForUnknownPolicy() {
+        assertTrue(store.findHead("nope").isEmpty());
+    }
+
+    @Test
+    void headExistsReflectsPresence() {
+        assertFalse(store.headExists("p-a"));
+        seedHead("p-a", 1, 1, policy("p-a", 1));
+        assertTrue(store.headExists("p-a"));
+    }
+
+    @Test
+    void findsVersionsNewestFirstAndPaged() {
+        seedVersion("p-a", 1);
+        seedVersion("p-a", 2);
+        seedVersion("p-a", 3);
+
+        assertEquals(3, store.countVersions("p-a"));
+
+        List<PolicyVersion> page = store.findVersions("p-a", 0, 2);
+        assertEquals(2, page.size());
+        assertEquals(3, page.get(0).content().version()); // descending by version
+        assertEquals(2, page.get(1).content().version());
+        assertEquals("v3", page.get(0).audit().changeReason());
+    }
+
+    @Test
+    void findsSpecificVersion() {
+        seedVersion("p-a", 1);
+        seedVersion("p-a", 2);
+
+        Optional<PolicyVersion> version = store.findVersion("p-a", 1);
+        assertTrue(version.isPresent());
+        assertEquals(1, version.get().content().version());
+        assertEquals("document", version.get().content().resourceType());
+    }
+
+    @Test
+    void findVersionIsEmptyWhenMissing() {
+        seedVersion("p-a", 1);
+        assertTrue(store.findVersion("p-a", 99).isEmpty());
+        assertTrue(store.findVersion("other", 1).isEmpty());
+    }
+
+    // --- seeding helpers -----------------------------------------------------
+
+    private Policy policy(String id, int version) {
+        return new Policy(
+                id,
+                version,
+                "document",
+                List.of("read"),
+                CombiningAlgorithm.DENY_OVERRIDES,
+                Effect.DENY,
+                List.of(new Rule(
+                        "assigned-access",
+                        Effect.PERMIT,
+                        new Comparison(
+                                Operator.IN,
+                                new AttributeRef("subject.id"),
+                                new AttributeRef("resource.attr.assignees")))));
+    }
+
+    private Document audit(String changeReason) {
+        return new Document("createdBy", "u-1")
+                .append("createdAt", "2026-07-01T00:00:00Z")
+                .append("changeReason", changeReason);
+    }
+
+    private void seedHead(String policyId, Integer activeVersion, long revision, Policy activeContent) {
+        PolicyHeadDocument doc = new PolicyHeadDocument();
+        doc.policyId = policyId;
+        doc.resourceType = "document";
+        doc.activeVersion = activeVersion;
+        doc.revision = revision;
+        doc.audit = audit("seed");
+        doc.activeContent = activeContent == null ? null : new Document(contentMapper.toDocument(activeContent));
+        headRepository.persist(doc);
+    }
+
+    private void seedVersion(String policyId, int version) {
+        PolicyVersionDocument doc = new PolicyVersionDocument();
+        doc.policyId = policyId;
+        doc.version = version;
+        doc.content = new Document(contentMapper.toDocument(policy(policyId, version)));
+        doc.audit = audit("v" + version);
+        versionRepository.persist(doc);
+    }
+}
