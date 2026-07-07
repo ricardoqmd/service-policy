@@ -4,7 +4,7 @@
 
     <groupId>io.github.ricardoqmd</groupId>
     <artifactId>service-policy</artifactId>
-    <version>0.1.14-SNAPSHOT</version>
+    <version>0.1.14</version>
     <packaging>jar</packaging>
 
     <name>service-policy</name>

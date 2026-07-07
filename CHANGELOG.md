@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.14](https://github.com/ricardoqmd/service-policy/compare/v0.1.13...v0.1.14) (2026-07-07)
+
+
+### Documentation
+
+* add ADR-017 REST response contract (envelope, pagination, error shape) ([#62](https://github.com/ricardoqmd/service-policy/issues/62)) ([3b37e64](https://github.com/ricardoqmd/service-policy/commit/3b37e644bd4b37e9722fa71c0d3d78cdbf1a333f))
+
 ## [0.1.13](https://github.com/ricardoqmd/service-policy/compare/v0.1.12...v0.1.13) (2026-07-07)
 
 
