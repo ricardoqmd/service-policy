@@ -3,26 +3,25 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Spins up everything needed to run Service Policy locally:
 #   - service-policy : the application itself (Quarkus on JVM)
-#   - mongodb        : MongoDB 7 for policy storage (Phase 2 onwards)
+#   - mongodb        : MongoDB 7 (standalone) for policy storage
 #   - mongo-express  : web UI to inspect MongoDB
 #
-# All host ports are parameterizable via .env to avoid conflicts with other
-# services you may have running locally (other MongoDBs, other apps on 8080,
-# etc.). Container-internal ports stay constant.
+# Activation is a single-document update on the policy head (ADR-016), so NO
+# replica set is required — plain standalone Mongo is enough. (Running a replica
+# set for other reasons, e.g. HA, is an independent operational choice.)
+#
+# LOCAL-ONLY SIMPLIFICATION: this stack runs Mongo WITHOUT access control (no
+# root user). Do NOT copy this no-auth setup to any shared/remote environment.
 #
 # Usage:
-#   Configure ports/credentials:  cp .env.example .env && edit .env
-#   Build & run everything:        docker compose up --build
-#   Run in background:             docker compose up -d
-#   Stop:                          docker compose down
-#   Stop & wipe DB:                docker compose down -v
-#   View logs:                     docker compose logs -f service-policy
+#   Build & run everything:   docker compose up --build
+#   Run in background:        docker compose up -d
+#   Stop:                     docker compose down
+#   Stop & wipe DB:           docker compose down -v
+#   View logs:                docker compose logs -f service-policy
 #
 # Before first run: build the JVM jar so the Dockerfile has something to copy:
 #   ./mvnw clean package -DskipTests
-#
-# Then:
-#   docker compose up --build
 #
 # Access points (use ports from your .env if customized):
 #   Service Policy:  http://localhost:${SERVICE_POLICY_HOST_PORT:-8080}
@@ -45,24 +44,15 @@ services:
     container_name: service-policy
     restart: unless-stopped
     ports:
-      # HOST:CONTAINER  — only the host side is configurable.
-      # The container always listens on 8080 internally (Quarkus default).
+      # HOST:CONTAINER — only the host side is configurable.
       - "${SERVICE_POLICY_HOST_PORT:-8080}:8080"
     environment:
-      # 12-factor: all config via env vars.
-      # Profile: 'dev' enables Swagger UI and verbose logs.
-      # For production-like testing, set QUARKUS_PROFILE=prod in .env.
       QUARKUS_PROFILE: ${QUARKUS_PROFILE:-dev}
 
-      # MongoDB connection (used from Phase 2 onwards).
-      # The hostname 'mongodb' resolves to the mongodb service on the internal network.
+      # Plain standalone Mongo on the compose network (no replica set needed).
       QUARKUS_MONGODB_CONNECTION_STRING: mongodb://mongodb:27017
-      QUARKUS_MONGODB_DATABASE: service-policy
+      QUARKUS_MONGODB_DATABASE: service_policy
 
-      # JVM tuning for container:
-      # - UseContainerSupport respects cgroup memory limits.
-      # - MaxRAMPercentage caps heap at 50% of container memory (leaving room for off-heap).
-      # - urandom avoids slow /dev/random blocking on entropy at startup.
       JAVA_OPTS_APPEND: >-
         -XX:+UseContainerSupport
         -XX:MaxRAMPercentage=50.0
@@ -71,8 +61,6 @@ services:
       mongodb:
         condition: service_healthy
     healthcheck:
-      # Hit the readiness endpoint with curl. Container must have curl available
-      # (the Quarkus UBI base image includes it).
       test: ["CMD-SHELL", "curl -f http://localhost:8080/q/health/ready || exit 1"]
       interval: 10s
       timeout: 5s
@@ -82,28 +70,19 @@ services:
       - service-policy-net
 
   # ──────────────────────────────────────────────────────────────────────────
-  # MongoDB — storage for policies, attributes, and audit log
+  # MongoDB — standalone, no auth (local only)
   # ──────────────────────────────────────────────────────────────────────────
   mongodb:
     image: mongo:7
     container_name: service-policy-mongodb
     restart: unless-stopped
     ports:
-      # Host-side configurable. Container always listens on 27017 internally.
-      # In production, MongoDB should NEVER be exposed to public networks.
       - "${MONGO_DB_HOST_PORT:-27017}:27017"
-    environment:
-      # Root credentials. Override these via .env for non-local environments.
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-rootpassword}
-      MONGO_INITDB_DATABASE: service-policy
     volumes:
-      # Named volumes persist data across `docker compose down`.
-      # Wipe with `docker compose down -v` when you need a fresh DB.
       - mongodb-data:/data/db
       - mongodb-config:/data/configdb
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -112,23 +91,19 @@ services:
       - service-policy-net
 
   # ──────────────────────────────────────────────────────────────────────────
-  # Mongo Express — web UI for browsing MongoDB
+  # Mongo Express — web UI for browsing MongoDB (dev only)
   # ──────────────────────────────────────────────────────────────────────────
-  # Useful for development to inspect what's in the database.
-  # DO NOT deploy this to production environments.
   mongo-express:
     image: mongo-express:1.0
     container_name: service-policy-mongo-express
     restart: unless-stopped
     ports:
-      # Host-side configurable. Container always listens on 8081 internally.
       - "${MONGO_EXPRESS_HOST_PORT:-8081}:8081"
     environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_ROOT_USER:-root}
-      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_ROOT_PASSWORD:-rootpassword}
-      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_ROOT_USER:-root}:${MONGO_ROOT_PASSWORD:-rootpassword}@mongodb:27017/
-      ME_CONFIG_MONGODB_SERVER: mongodb
-      # Basic auth for the web UI itself. Override in .env for non-local.
+      # No Mongo credentials (access control is off locally).
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
+      # Basic auth for the Express web UI itself (not for Mongo).
       ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_EXPRESS_USER:-admin}
       ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASSWORD:-admin}
       ME_CONFIG_SITE_BASEURL: /
@@ -148,8 +123,7 @@ volumes:
     name: service-policy-mongodb-config
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Isolated network: services talk to each other by name (e.g. 'mongodb'),
-# not via host networking. Better isolation, no port conflicts internally.
+# Isolated network: services talk to each other by name (e.g. 'mongodb').
 # ─────────────────────────────────────────────────────────────────────────────
 networks:
   service-policy-net:
