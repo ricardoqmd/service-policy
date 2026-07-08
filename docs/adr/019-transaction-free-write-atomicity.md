@@ -176,6 +176,15 @@ create for that id. It is not swept.
   choices.
 - The unique indexes on `policy_heads.policyId` and `policy_versions.(policyId,
   version)` are a hard prerequisite (already present, `PolicyLifecycleIndexes`).
+- **Append precondition disambiguation has a benign race.** When the append CAS
+  matches zero documents, the store re-reads the head to distinguish 412
+  (head exists, revision stale) from 404 (no head). If a concurrent create inserts
+  the head between the failed CAS and that re-read, the caller receives 412 instead
+  of 404. This is accepted: no data is corrupted, the 412 carries the current
+  revision, and the client's retry (with the fresh `If-Match`) wins the CAS
+  normally. Making this boundary atomic would require a transaction for a
+  self-correcting edge, against "stable over comprehensive." The 404/412 split is
+  best-effort classification, not a serialization guarantee.
 
 ## Criteria to revisit
 
