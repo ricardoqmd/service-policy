@@ -28,6 +28,7 @@ both are kept for the audit trail.
 | [017](017-rest-response-contract.md)           | REST response contract — collection envelope, pagination, error shape                    | Accepted |
 | [018](018-error-response-contract.md)          | Error response contract — RFC 9457 problem+json, conditional writes (If-Match/ETag)      | Accepted |
 | [019](019-transaction-free-write-atomicity.md) | Transaction-free write atomicity — commit-point + self-healing                           | Accepted |
+| [020](020-activation-write-path.md)            | Activation write-path — explicit-version activate + deactivate, conditional single-doc   | Accepted |
 
 ## Relationships
 
@@ -43,6 +44,11 @@ both are kept for the audit trail.
   ADR-019 extends the same "single commit point + idempotent writes" principle to
   create (head-first) and append (compare-and-set on `revision`), which each touch
   two documents, so standalone Mongo stays sufficient for writes too.
+- **ADR-020 implements the activation write-path anticipated by ADR-016.** ADR-016
+  modeled activation as a single-document head write but left the store method and
+  endpoints unbuilt; ADR-020 adds explicit-version `activate` and `deactivate` as
+  admin-gated conditional writes (ADR-018) reusing the ADR-019 CAS pattern, and
+  settles that only activation writes `activeContent`.
 - **ADR-004** defined the Phase 1.5 PEP contract surface with a stub evaluator;
   the persistent evaluator that replaced the stub is covered by ADR-008 and
   ADR-010.
