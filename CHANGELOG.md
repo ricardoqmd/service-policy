@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.20](https://github.com/ricardoqmd/service-policy/compare/v0.1.19...v0.1.20) (2026-07-08)
+
+
+### Documentation
+
+* add ADR-020 activation write-path ([#80](https://github.com/ricardoqmd/service-policy/issues/80)) ([4351c37](https://github.com/ricardoqmd/service-policy/commit/4351c37f571a22556ae7515c4a936799d3e6fc16))
+
 ## [0.1.19](https://github.com/ricardoqmd/service-policy/compare/v0.1.18...v0.1.19) (2026-07-08)
 
 
