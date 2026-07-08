@@ -2,13 +2,12 @@ package io.github.ricardoqmd.servicepolicy.persistence;
 
 import org.bson.Document;
 
+import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
+
 /**
- * Maps head-pointer persistence documents (ADR-016) to their read models. Content mapping is
- * delegated to the shared {@link PolicyDocumentMapper} so the head's {@code activeContent} and a
+ * Maps between head-pointer persistence documents (ADR-016) and their read models. Content mapping
+ * is delegated to the shared {@link PolicyDocumentMapper} so the head's {@code activeContent} and a
  * version's {@code content} use exactly the same validated shape as authoring and storage.
- *
- * <p>Read-only in this slice: write mapping (read model -&gt; document) lands with the
- * create/activate operations in later slices.
  */
 public class PolicyLifecycleDocumentMapper {
 
@@ -34,6 +33,19 @@ public class PolicyLifecycleDocumentMapper {
 
     public PolicyVersion version(PolicyVersionDocument document) {
         return new PolicyVersion(policyMapper.fromDocument(document.content), audit(document.audit));
+    }
+
+    public Document toAuditDocument(String createdBy, String createdAt, String changeReason) {
+        return new Document(CREATED_BY, createdBy).append(CREATED_AT, createdAt).append(CHANGE_REASON, changeReason);
+    }
+
+    public PolicyVersionDocument toVersionDocument(String policyId, int version, Policy policy, Document audit) {
+        PolicyVersionDocument doc = new PolicyVersionDocument();
+        doc.policyId = policyId;
+        doc.version = version;
+        doc.content = new Document(policyMapper.toDocument(policy));
+        doc.audit = audit;
+        return doc;
     }
 
     private PolicyAudit audit(Document doc) {

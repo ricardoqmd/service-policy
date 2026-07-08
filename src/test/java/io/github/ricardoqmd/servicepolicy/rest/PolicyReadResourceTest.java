@@ -57,8 +57,7 @@ class PolicyReadResourceTest {
 
     @AfterEach
     void cleanup() {
-        headRepository.deleteAll();
-        versionRepository.deleteAll();
+        clean();
     }
 
     @Test
@@ -120,7 +119,7 @@ class PolicyReadResourceTest {
             user = "admin-user",
             roles = {ADMIN})
     void getByIdIsNotFoundForUnknownPolicy() {
-        given().when().get("/v1/policies/nope").then().statusCode(404).body("error", equalTo("NOT_FOUND"));
+        given().when().get("/v1/policies/nope").then().statusCode(404).body("code", equalTo("POLICY_NOT_FOUND"));
     }
 
     @Test
@@ -147,7 +146,11 @@ class PolicyReadResourceTest {
             user = "admin-user",
             roles = {ADMIN})
     void listVersionsIsNotFoundWhenPolicyUnknown() {
-        given().when().get("/v1/policies/nope/versions").then().statusCode(404).body("error", equalTo("NOT_FOUND"));
+        given().when()
+                .get("/v1/policies/nope/versions")
+                .then()
+                .statusCode(404)
+                .body("code", equalTo("POLICY_NOT_FOUND"));
     }
 
     @Test
@@ -179,7 +182,7 @@ class PolicyReadResourceTest {
                 .get("/v1/policies/p-a/versions/99")
                 .then()
                 .statusCode(404)
-                .body("error", equalTo("NOT_FOUND"));
+                .body("code", equalTo("VERSION_NOT_FOUND"));
     }
 
     @Test
@@ -192,13 +195,13 @@ class PolicyReadResourceTest {
                 .get("/v1/policies")
                 .then()
                 .statusCode(400)
-                .body("error", equalTo("BAD_REQUEST"));
+                .body("code", equalTo("BAD_REQUEST"));
     }
 
     @Test
     @TestSecurity(user = "plain-user")
     void rejectsCallerWithoutAdminMarker() {
-        given().when().get("/v1/policies").then().statusCode(403).body("error", equalTo("FORBIDDEN"));
+        given().when().get("/v1/policies").then().statusCode(403).body("code", equalTo("FORBIDDEN"));
     }
 
     // --- seeding helpers -----------------------------------------------------

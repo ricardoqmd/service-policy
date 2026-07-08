@@ -9,18 +9,16 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyRepository;
+import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
 import io.restassured.http.ContentType;
 
 /**
- * End-to-end tests for policy authoring (POST /v1/policies): author a policy over HTTP and then
- * evaluate against it over HTTP, plus the conflict, validation, and auth guards (ADR-013).
- *
- * <p>Uses {@code @TestSecurity} with the {@code authz-admin} role to satisfy the admin marker
- * check (ADR-013 §4). Tests without {@code @TestSecurity} verify the 401 guard; tests without the
- * admin role verify the 403 guard.
+ * End-to-end tests for policy authoring (POST /v1/policies): create a policy and verify the
+ * write guards (conflict, validation, auth — ADR-013, ADR-019).
  */
 @QuarkusTest
 class PolicyResourceTest {
@@ -57,22 +55,29 @@ class PolicyResourceTest {
     @Inject
     PolicyRepository policyRepository;
 
+    @Inject
+    PolicyHeadRepository headRepository;
+
+    @Inject
+    PolicyVersionRepository versionRepository;
+
     @BeforeEach
     void clean() {
         policyRepository.deleteAll();
+        headRepository.deleteAll();
+        versionRepository.deleteAll();
     }
 
     @AfterEach
     void cleanup() {
-        policyRepository.deleteAll();
+        clean();
     }
 
     @Test
     @TestSecurity(
             user = "admin-user",
             roles = {"authz-admin"})
-    void createPolicyThenEvaluateAgainstIt() {
-        // 1) author the policy over HTTP
+    void createPolicyIsInactiveByDefault() {
         given().contentType(ContentType.JSON)
                 .body(DOC_ACCESS_POLICY)
                 .when()
@@ -81,40 +86,7 @@ class PolicyResourceTest {
                 .statusCode(201)
                 .body("policyId", equalTo("doc-access"))
                 .body("version", equalTo(1))
-                .body("active", equalTo(true));
-
-        // 2) evaluate against it: an assigned subject is permitted
-        given().contentType(ContentType.JSON)
-                .body("""
-                        {
-                          "action": "document:read",
-                          "resource": {"type": "document", "id": "d1", "attributes": {"assignees": ["admin-user"]}}
-                        }
-                        """)
-                .when()
-                .post("/v1/evaluate")
-                .then()
-                .statusCode(200)
-                .body("allowed", equalTo(true))
-                .body("reason", equalTo("permitted by rule assigned-access"));
-
-        // 3) a sealed resource is denied (deny-overrides)
-        given().contentType(ContentType.JSON)
-                .body("""
-                        {
-                          "action": "document:read",
-                          "resource": {
-                            "type": "document", "id": "d2",
-                            "attributes": {"assignees": ["admin-user"], "sealed": true}
-                          }
-                        }
-                        """)
-                .when()
-                .post("/v1/evaluate")
-                .then()
-                .statusCode(200)
-                .body("allowed", equalTo(false))
-                .body("reason", equalTo("denied by rule sealed-deny"));
+                .body("active", equalTo(false));
     }
 
     @Test
@@ -135,7 +107,7 @@ class PolicyResourceTest {
                 .post("/v1/policies")
                 .then()
                 .statusCode(409)
-                .body("error", equalTo("CONFLICT"));
+                .body("code", equalTo("POLICY_ALREADY_EXISTS"));
     }
 
     @Test
@@ -163,7 +135,7 @@ class PolicyResourceTest {
                 .post("/v1/policies")
                 .then()
                 .statusCode(400)
-                .body("error", equalTo("BAD_REQUEST"));
+                .body("code", equalTo("INVALID_POLICY"));
     }
 
     @Test
@@ -185,6 +157,6 @@ class PolicyResourceTest {
                 .post("/v1/policies")
                 .then()
                 .statusCode(403)
-                .body("error", equalTo("FORBIDDEN"));
+                .body("code", equalTo("FORBIDDEN"));
     }
 }

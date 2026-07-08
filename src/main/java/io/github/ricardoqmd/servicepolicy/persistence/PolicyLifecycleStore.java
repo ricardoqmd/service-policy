@@ -1,22 +1,37 @@
 package io.github.ricardoqmd.servicepolicy.persistence;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 import jakarta.inject.Singleton;
 
+import org.bson.Document;
+import org.jboss.logging.Logger;
+
+import com.mongodb.MongoWriteException;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.UpdateOptions;
+import com.mongodb.client.model.Updates;
+import com.mongodb.client.result.UpdateResult;
+
+import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
+import io.github.ricardoqmd.servicepolicy.rest.PreconditionFailedException;
+
 /**
  * Mediates between the head-pointer repositories (ADR-016) and the read models, keeping the REST
- * layer off Panache. This is the seam that will host the write invariants (append-only versioning,
- * head-first idempotent create, single-document activation, optimistic concurrency) in later
- * slices; in this slice it exposes reads only.
+ * layer off Panache. Write invariants (ADR-019): head-first idempotent create with commit point at
+ * version insert; CAS-guarded append with commit point at CAS update.
  *
- * <p>Introduced alongside the legacy {@link PolicyStore}, which keeps serving the evaluator from the
- * {@code policies} collection until the activation slice repoints it (ADR-016).
+ * <p>Introduced alongside the legacy {@link PolicyStore}, which keeps serving the evaluator from
+ * the {@code policies} collection until the activation slice repoints it (ADR-016).
  */
 // @Singleton (not @ApplicationScoped): stateless bean, no proxy needed (see ADR-009).
 @Singleton
 public class PolicyLifecycleStore {
+
+    private static final Logger log = Logger.getLogger(PolicyLifecycleStore.class);
+    private static final int DUPLICATE_KEY_CODE = 11000;
 
     private final PolicyHeadRepository headRepository;
     private final PolicyVersionRepository versionRepository;
@@ -65,5 +80,84 @@ public class PolicyLifecycleStore {
     /** @return the specific version of the given policy, if present. */
     public Optional<PolicyVersion> findVersion(String policyId, int version) {
         return versionRepository.findByPolicyIdAndVersion(policyId, version).map(mapper::version);
+    }
+
+    /**
+     * Creates a new policy (head-first, version insert as commit point — ADR-019 §create).
+     * The head upsert is idempotent; a concurrent create that wins the upsert race does not block
+     * this thread — both proceed to the version insert where the unique index arbitrates.
+     *
+     * @throws PolicyAlreadyExistsException (409) if version 1 already exists.
+     */
+    public void create(Policy policy, String callerSubject, String changeReason) {
+        String policyId = policy.id();
+        Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
+
+        Document setOnInsert = new Document()
+                .append("policyId", policyId)
+                .append("resourceType", policy.resourceType())
+                .append("activeVersion", null)
+                .append("activeContent", null)
+                .append("revision", 0L)
+                .append("audit", auditDoc);
+        try {
+            headRepository
+                    .mongoCollection()
+                    .updateOne(
+                            Filters.eq("policyId", policyId),
+                            new Document("$setOnInsert", setOnInsert),
+                            new UpdateOptions().upsert(true));
+        } catch (MongoWriteException e) {
+            if (e.getError().getCode() == DUPLICATE_KEY_CODE) {
+                log.debugf("head for '%s' already exists (concurrent create); proceeding", policyId);
+            } else {
+                throw e;
+            }
+        }
+
+        PolicyVersionDocument versionDoc = mapper.toVersionDocument(policyId, 1, policy, auditDoc);
+        try {
+            versionRepository.mongoCollection().insertOne(versionDoc);
+        } catch (MongoWriteException e) {
+            if (e.getError().getCode() == DUPLICATE_KEY_CODE) {
+                throw new PolicyAlreadyExistsException(policyId);
+            }
+            throw e;
+        }
+
+        log.infof("policy '%s' created inactive; not evaluable until activation", policyId);
+    }
+
+    /**
+     * Appends a new version (CAS on head revision as commit point — ADR-019 §append).
+     *
+     * @param ifMatch the revision value from the client's {@code If-Match} header.
+     * @return the new version number.
+     * @throws PreconditionFailedException (412) if {@code ifMatch} is stale.
+     * @throws PolicyNotFoundException (404) if no head exists for the given id.
+     */
+    public int append(String policyId, Policy content, long ifMatch, String callerSubject, String changeReason) {
+        UpdateResult cas = headRepository
+                .mongoCollection()
+                .updateOne(
+                        Filters.and(Filters.eq("policyId", policyId), Filters.eq("revision", ifMatch)),
+                        Updates.inc("revision", 1L));
+
+        if (cas.getMatchedCount() == 0) {
+            Optional<PolicyHead> existing = findHead(policyId);
+            if (existing.isPresent()) {
+                throw new PreconditionFailedException(policyId, existing.get().revision());
+            }
+            throw new PolicyNotFoundException(policyId);
+        }
+
+        List<PolicyVersionDocument> latest = versionRepository.findByPolicyId(policyId, 0, 1);
+        int nextVersion = latest.isEmpty() ? 1 : latest.get(0).version + 1;
+
+        Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
+        PolicyVersionDocument versionDoc = mapper.toVersionDocument(policyId, nextVersion, content, auditDoc);
+        versionRepository.mongoCollection().insertOne(versionDoc);
+
+        return nextVersion;
     }
 }

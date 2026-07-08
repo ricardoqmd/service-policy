@@ -6,11 +6,14 @@ import java.util.Map;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.EntityTag;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
@@ -24,20 +27,22 @@ import io.github.ricardoqmd.servicepolicy.persistence.PolicyDocumentException;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyDocumentMapper;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHead;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
-import io.github.ricardoqmd.servicepolicy.persistence.PolicyStore;
+import io.github.ricardoqmd.servicepolicy.persistence.PolicyNotFoundException;
+import io.github.ricardoqmd.servicepolicy.persistence.PolicyValidationException;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersion;
+import io.github.ricardoqmd.servicepolicy.persistence.VersionNotFoundException;
+import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemDetail;
 import io.quarkus.security.Authenticated;
 
 /**
  * PAP-facing policy endpoints.
  *
- * <p>All operations require the admin authorization marker (ADR-013 §4). The Bearer JWT is validated
- * by quarkus-oidc; the admin marker is then checked programmatically.
+ * <p>All operations require the admin authorization marker (ADR-013 §4). The Bearer JWT is
+ * validated by quarkus-oidc; the admin marker is then checked programmatically.
  *
- * <p>Authoring ({@code POST}) accepts the document-shaped body (ADR-012). Reads ({@code GET}) return
- * the head-pointer model (ADR-016) using the response contract of ADR-017: collections are wrapped
- * in a {@link Paginated} envelope (1-indexed page/size), single resources are returned bare, and
- * lists are lean by default with an opt-in {@code ?view=full}.
+ * <p>Authoring ({@code POST}) and appending ({@code PUT}) write through the head-pointer model
+ * (ADR-016) following the transaction-free write invariants of ADR-019. Reads ({@code GET}) return
+ * the head-pointer model using the response contract of ADR-017.
  */
 @Path("/v1/policies")
 @Produces(MediaType.APPLICATION_JSON)
@@ -48,19 +53,13 @@ public class PolicyResource {
 
     private static final int MAX_PAGE_SIZE = 100;
 
-    private final PolicyStore policyStore;
     private final PolicyLifecycleStore lifecycleStore;
     private final AuthContext authContext;
     private final ServicePolicyConfig cfg;
     private final PolicyDocumentMapper policyMapper = new PolicyDocumentMapper(new ConditionDocumentMapper());
     private final PolicyReadMapper readMapper = new PolicyReadMapper();
 
-    PolicyResource(
-            PolicyStore policyStore,
-            PolicyLifecycleStore lifecycleStore,
-            AuthContext authContext,
-            ServicePolicyConfig cfg) {
-        this.policyStore = policyStore;
+    PolicyResource(PolicyLifecycleStore lifecycleStore, AuthContext authContext, ServicePolicyConfig cfg) {
         this.lifecycleStore = lifecycleStore;
         this.authContext = authContext;
         this.cfg = cfg;
@@ -69,54 +68,80 @@ public class PolicyResource {
     @POST
     @Operation(
             summary = "Create a policy",
-            description = "Creates a new active policy from the document-shaped body. Requires a valid Bearer token"
-                    + " (401 otherwise) and the admin authorization marker (403 otherwise). Returns"
-                    + " 400 if the body is malformed, or 409 if a policy with the same id already exists.")
+            description = "Creates a new inactive policy (ADR-014, ADR-019). Requires the admin marker."
+                    + " Returns 400 if the body is malformed, 409 if a policy with the same id already"
+                    + " exists. The policy is not evaluable until activated.")
     public Response create(Map<String, Object> body) {
-        if (!isAdmin()) {
-            return forbidden();
-        }
+        requireAdmin();
 
         if (body == null || body.isEmpty()) {
-            return badRequest("request body must not be empty.");
+            throw new InvalidRequestException("request body must not be empty.");
         }
 
         Policy policy;
         try {
             policy = policyMapper.fromDocument(body);
         } catch (PolicyDocumentException e) {
-            return badRequest(e.getMessage());
+            throw new PolicyValidationException(List.of(new ProblemDetail.InvalidParam("policy", e.getMessage())));
         }
 
-        if (policyStore.exists(policy.id())) {
-            return Response.status(Response.Status.CONFLICT)
-                    .entity(new ApiError("CONFLICT", "a policy with id '" + policy.id() + "' already exists."))
-                    .build();
-        }
-
-        policyStore.save(policy, true);
+        String changeReason = body.get("changeReason") instanceof String s ? s : null;
+        lifecycleStore.create(policy, authContext.callerSubject(), changeReason);
         return Response.status(Response.Status.CREATED)
-                .entity(new PolicyCreated(policy.id(), policy.version(), true))
+                .entity(new PolicyCreated(policy.id(), 1, false))
                 .build();
+    }
+
+    @PUT
+    @Path("/{id}")
+    @Operation(
+            summary = "Append a new version",
+            description = "Appends an inactive version N+1 (ADR-019). Requires the admin marker and an"
+                    + " If-Match header with the current ETag. Returns 428 if If-Match is absent,"
+                    + " 412 if stale, 404 if policy unknown, 400 if body invalid.")
+    public Response append(
+            @PathParam("id") String id, @HeaderParam("If-Match") String ifMatch, WriteVersionRequest body) {
+        requireAdmin();
+
+        if (ifMatch == null || ifMatch.isBlank()) {
+            throw new PreconditionRequiredException();
+        }
+
+        if (body == null || body.content() == null || body.content().isEmpty()) {
+            throw new InvalidRequestException("request body 'content' must not be empty.");
+        }
+
+        long revision;
+        try {
+            String stripped = ifMatch.startsWith("\"") && ifMatch.endsWith("\"")
+                    ? ifMatch.substring(1, ifMatch.length() - 1)
+                    : ifMatch;
+            revision = Long.parseLong(stripped.trim());
+        } catch (NumberFormatException e) {
+            throw new PreconditionRequiredException();
+        }
+
+        Policy policy;
+        try {
+            policy = policyMapper.fromDocument(body.content());
+        } catch (PolicyDocumentException e) {
+            throw new PolicyValidationException(List.of(new ProblemDetail.InvalidParam("content", e.getMessage())));
+        }
+
+        int newVersion = lifecycleStore.append(id, policy, revision, authContext.callerSubject(), body.changeReason());
+        return Response.ok(new PolicyCreated(id, newVersion, false)).build();
     }
 
     @GET
     @Operation(
             summary = "List active policies",
-            description = "Returns active policy heads (ADR-016) as a paginated collection (ADR-017). Lean by"
-                    + " default; pass ?view=full to embed each head's active content. Requires a valid Bearer"
-                    + " token (401) and the admin marker (403). Returns 400 for invalid pagination.")
+            description = "Returns active policy heads (ADR-016) as a paginated collection (ADR-017).")
     public Response list(
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("size") @DefaultValue("20") int size,
             @QueryParam("view") String view) {
-        if (!isAdmin()) {
-            return forbidden();
-        }
-        Response pagingError = validatePaging(page, size);
-        if (pagingError != null) {
-            return pagingError;
-        }
+        requireAdmin();
+        validatePaging(page, size);
 
         long total = lifecycleStore.countActiveHeads();
         List<PolicyHead> heads = lifecycleStore.findActiveHeads(page - 1, size);
@@ -136,39 +161,30 @@ public class PolicyResource {
     @Path("/{id}")
     @Operation(
             summary = "Get a policy head",
-            description = "Returns the full policy head, including its active content (null if the policy has no"
-                    + " active version). 401/403 as above; 404 if no policy has the given id.")
+            description = "Returns the full policy head. Response includes a strong ETag equal to the"
+                    + " head's current revision. 404 if no policy has the given id.")
     public Response getById(@PathParam("id") String id) {
-        if (!isAdmin()) {
-            return forbidden();
-        }
-        return lifecycleStore
-                .findHead(id)
-                .map(head -> Response.ok(readMapper.headView(head)).build())
-                .orElseGet(() -> notFound("no policy with id '" + id + "'."));
+        requireAdmin();
+        PolicyHead head = lifecycleStore.findHead(id).orElseThrow(() -> new PolicyNotFoundException(id));
+        return Response.ok(readMapper.headView(head))
+                .tag(new EntityTag(String.valueOf(head.revision())))
+                .build();
     }
 
     @GET
     @Path("/{id}/versions")
     @Operation(
             summary = "List versions of a policy",
-            description = "Returns the policy's versions (newest first) as a paginated collection (ADR-017); lean"
-                    + " by default, ?view=full for full content. 401/403 as above; 404 if the policy id is"
-                    + " unknown; 400 for invalid pagination.")
+            description = "Returns the policy's versions (newest first) as a paginated collection.")
     public Response listVersions(
             @PathParam("id") String id,
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("size") @DefaultValue("20") int size,
             @QueryParam("view") String view) {
-        if (!isAdmin()) {
-            return forbidden();
-        }
-        Response pagingError = validatePaging(page, size);
-        if (pagingError != null) {
-            return pagingError;
-        }
+        requireAdmin();
+        validatePaging(page, size);
         if (!lifecycleStore.headExists(id)) {
-            return notFound("no policy with id '" + id + "'.");
+            throw new PolicyNotFoundException(id);
         }
 
         long total = lifecycleStore.countVersions(id);
@@ -189,51 +205,32 @@ public class PolicyResource {
     @Path("/{id}/versions/{version}")
     @Operation(
             summary = "Get a specific policy version",
-            description = "Returns the full content of one immutable version. 401/403 as above; 404 if the policy"
-                    + " or version does not exist.")
+            description = "Returns the full content of one immutable version. 404 if the policy or"
+                    + " version does not exist.")
     public Response getVersion(@PathParam("id") String id, @PathParam("version") int version) {
-        if (!isAdmin()) {
-            return forbidden();
-        }
+        requireAdmin();
         return lifecycleStore
                 .findVersion(id, version)
                 .map(found -> Response.ok(readMapper.versionContent(found)).build())
-                .orElseGet(() -> notFound("policy '" + id + "' has no version " + version + "."));
+                .orElseThrow(() -> new VersionNotFoundException(id, version));
     }
 
-    private boolean isAdmin() {
-        return authContext.has(cfg.authz().admin());
+    private void requireAdmin() {
+        if (!authContext.has(cfg.authz().admin())) {
+            throw new ForbiddenProblemException("admin marker required.");
+        }
     }
 
-    private static Response validatePaging(int page, int size) {
+    private static void validatePaging(int page, int size) {
         if (page < 1) {
-            return badRequest("'page' must be 1 or greater.");
+            throw new InvalidRequestException("'page' must be 1 or greater.");
         }
         if (size < 1 || size > MAX_PAGE_SIZE) {
-            return badRequest("'size' must be between 1 and " + MAX_PAGE_SIZE + ".");
+            throw new InvalidRequestException("'size' must be between 1 and " + MAX_PAGE_SIZE + ".");
         }
-        return null;
     }
 
     private static boolean isFull(String view) {
         return "full".equalsIgnoreCase(view);
-    }
-
-    private static Response forbidden() {
-        return Response.status(Response.Status.FORBIDDEN)
-                .entity(new ApiError("FORBIDDEN", "admin marker required."))
-                .build();
-    }
-
-    private static Response notFound(String message) {
-        return Response.status(Response.Status.NOT_FOUND)
-                .entity(new ApiError("NOT_FOUND", message))
-                .build();
-    }
-
-    private static Response badRequest(String message) {
-        return Response.status(Response.Status.BAD_REQUEST)
-                .entity(new ApiError("BAD_REQUEST", message))
-                .build();
     }
 }

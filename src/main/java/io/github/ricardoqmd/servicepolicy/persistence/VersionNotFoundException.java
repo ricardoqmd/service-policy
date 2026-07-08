@@ -1,0 +1,30 @@
+package io.github.ricardoqmd.servicepolicy.persistence;
+
+import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemDetail;
+import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemException;
+
+public class VersionNotFoundException extends ProblemException {
+
+    private final String policyId;
+    private final int requestedVersion;
+
+    public VersionNotFoundException(String policyId, int requestedVersion) {
+        super(404, "VERSION_NOT_FOUND", "Policy '" + policyId + "' has no version " + requestedVersion + ".");
+        this.policyId = policyId;
+        this.requestedVersion = requestedVersion;
+    }
+
+    @Override
+    public ProblemDetail toProblemDetail() {
+        return new ProblemDetail(
+                typeUri(getCode()),
+                getCode(),
+                "Version not found",
+                getStatus(),
+                getMessage(),
+                policyId,
+                null,
+                requestedVersion,
+                null);
+    }
+}
