@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.19](https://github.com/ricardoqmd/service-policy/compare/v0.1.18...v0.1.19) (2026-07-08)
+
+
+### Features
+
+* add policy write endpoints (create head-first, PUT append) with problem+json ([#77](https://github.com/ricardoqmd/service-policy/issues/77)) ([6565e19](https://github.com/ricardoqmd/service-policy/commit/6565e195379e3430b1bfb5b74736c05e4420a574))
+
 ## [0.1.18](https://github.com/ricardoqmd/service-policy/compare/v0.1.17...v0.1.18) (2026-07-08)
 
 
