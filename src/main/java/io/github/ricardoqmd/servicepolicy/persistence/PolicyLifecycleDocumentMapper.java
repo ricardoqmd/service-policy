@@ -35,6 +35,15 @@ public class PolicyLifecycleDocumentMapper {
         return new PolicyVersion(policyMapper.fromDocument(document.content), audit(document.audit));
     }
 
+    /**
+     * Maps the {@code activeContent} of an active head document to a domain {@link Policy}.
+     * Callers must only invoke this on heads where {@code activeContent} is non-null (i.e. heads
+     * returned by {@code findActiveByResourceType}).
+     */
+    public Policy activeContentPolicy(PolicyHeadDocument document) {
+        return policyMapper.fromDocument(document.activeContent);
+    }
+
     public Document toAuditDocument(String createdBy, String createdAt, String changeReason) {
         return new Document(CREATED_BY, createdBy).append(CREATED_AT, createdAt).append(CHANGE_REASON, changeReason);
     }
