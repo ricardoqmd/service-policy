@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.21](https://github.com/ricardoqmd/service-policy/compare/v0.1.20...v0.1.21) (2026-07-08)
+
+
+### Documentation
+
+* add ADR-021 evaluator cutover to head-pointer model ([#83](https://github.com/ricardoqmd/service-policy/issues/83)) ([3d5e0e2](https://github.com/ricardoqmd/service-policy/commit/3d5e0e280d25a237e05a5909af235e80c5e56106))
+
 ## [0.1.20](https://github.com/ricardoqmd/service-policy/compare/v0.1.19...v0.1.20) (2026-07-08)
 
 
