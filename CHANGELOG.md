@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.22](https://github.com/ricardoqmd/service-policy/compare/v0.1.21...v0.1.22) (2026-07-08)
+
+
+### Features
+
+* add policy activation endpoints (explicit-version activate, deactivate) ([#86](https://github.com/ricardoqmd/service-policy/issues/86)) ([7bafd93](https://github.com/ricardoqmd/service-policy/commit/7bafd93d344c9899d9282f3d569d458f2f5cf113))
+
 ## [0.1.21](https://github.com/ricardoqmd/service-policy/compare/v0.1.20...v0.1.21) (2026-07-08)
 
 
