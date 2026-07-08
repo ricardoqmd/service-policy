@@ -139,6 +139,63 @@ class PolicyLifecycleStoreTest {
         assertTrue(store.findVersion("other", 1).isEmpty());
     }
 
+    // --- ADR-020 §4: activeContent write-path behavioral invariants ----------
+
+    @Test
+    void createLeavesActiveVersionAndActiveContentNull() {
+        store.create(policy("p-inv", 1), "tester", "invariant test");
+
+        PolicyHeadDocument head = headRepository.findByPolicyId("p-inv").orElseThrow();
+        assertNull(head.activeVersion);
+        assertNull(head.activeContent);
+    }
+
+    @Test
+    void appendDoesNotChangeActiveVersionOrActiveContent() {
+        store.create(policy("p-inv", 1), "tester", null);
+
+        PolicyHeadDocument headAfterCreate =
+                headRepository.findByPolicyId("p-inv").orElseThrow();
+        long revision = headAfterCreate.revision;
+
+        store.append("p-inv", policy("p-inv", 2), revision, "tester", null);
+
+        PolicyHeadDocument headAfterAppend =
+                headRepository.findByPolicyId("p-inv").orElseThrow();
+        assertNull(headAfterAppend.activeVersion);
+        assertNull(headAfterAppend.activeContent);
+    }
+
+    @Test
+    void activateSetsActiveVersionAndActiveContentVerbatim() {
+        store.create(policy("p-inv", 1), "tester", null);
+
+        long revision = headRepository.findByPolicyId("p-inv").orElseThrow().revision;
+        PolicyHead head = store.activate("p-inv", 1, revision, "tester", "go live");
+
+        assertEquals(1, head.activeVersion());
+        assertNotNull(head.activeContent());
+
+        // Verbatim check: activeContent in the head document must be the exact same BSON
+        // Document that was stored as version 1, with no domain round-trip in between.
+        PolicyVersionDocument versionDoc =
+                versionRepository.findByPolicyIdAndVersion("p-inv", 1).orElseThrow();
+        PolicyHeadDocument headDoc = headRepository.findByPolicyId("p-inv").orElseThrow();
+        assertEquals(versionDoc.content, headDoc.activeContent);
+    }
+
+    @Test
+    void deactivateClearsActiveVersionAndActiveContent() {
+        store.create(policy("p-inv", 1), "tester", null);
+        long rev0 = headRepository.findByPolicyId("p-inv").orElseThrow().revision;
+
+        PolicyHead activated = store.activate("p-inv", 1, rev0, "tester", null);
+        PolicyHead deactivated = store.deactivate("p-inv", activated.revision(), "tester", "retiring");
+
+        assertNull(deactivated.activeVersion());
+        assertNull(deactivated.activeContent());
+    }
+
     // --- seeding helpers -----------------------------------------------------
 
     private Policy policy(String id, int version) {

@@ -102,23 +102,10 @@ public class PolicyResource {
     public Response append(
             @PathParam("id") String id, @HeaderParam("If-Match") String ifMatch, WriteVersionRequest body) {
         requireAdmin();
-
-        if (ifMatch == null || ifMatch.isBlank()) {
-            throw new PreconditionRequiredException();
-        }
+        long revision = parseIfMatch(ifMatch);
 
         if (body == null || body.content() == null || body.content().isEmpty()) {
             throw new InvalidRequestException("request body 'content' must not be empty.");
-        }
-
-        long revision;
-        try {
-            String stripped = ifMatch.startsWith("\"") && ifMatch.endsWith("\"")
-                    ? ifMatch.substring(1, ifMatch.length() - 1)
-                    : ifMatch;
-            revision = Long.parseLong(stripped.trim());
-        } catch (NumberFormatException e) {
-            throw new PreconditionRequiredException();
         }
 
         Policy policy;
@@ -130,6 +117,46 @@ public class PolicyResource {
 
         int newVersion = lifecycleStore.append(id, policy, revision, authContext.callerSubject(), body.changeReason());
         return Response.ok(new PolicyCreated(id, newVersion, false)).build();
+    }
+
+    @POST
+    @Path("/{id}/activate")
+    @Operation(
+            summary = "Activate a specific policy version",
+            description = "Activates the named version (ADR-020). Requires the admin marker and an"
+                    + " If-Match header with the head's current ETag. Returns 428 if If-Match is"
+                    + " absent or unparseable, 412 if stale (with currentRevision), 404 if the"
+                    + " policy or the requested version does not exist.")
+    public Response activate(
+            @PathParam("id") String id, @HeaderParam("If-Match") String ifMatch, ActivateRequest body) {
+        requireAdmin();
+        long revision = parseIfMatch(ifMatch);
+        if (body == null || body.version() == null) {
+            throw new InvalidRequestException("request body must include a 'version' number.");
+        }
+        PolicyHead head =
+                lifecycleStore.activate(id, body.version(), revision, authContext.callerSubject(), body.changeReason());
+        return Response.ok(readMapper.headView(head))
+                .tag(new EntityTag(String.valueOf(head.revision())))
+                .build();
+    }
+
+    @POST
+    @Path("/{id}/deactivate")
+    @Operation(
+            summary = "Deactivate a policy",
+            description = "Clears the active version pointer — a soft retire that preserves version"
+                    + " history (ADR-014, ADR-020). Requires the admin marker and If-Match."
+                    + " Body is optional (only changeReason). Returns 428, 412, or 404 on errors.")
+    public Response deactivate(
+            @PathParam("id") String id, @HeaderParam("If-Match") String ifMatch, DeactivateRequest body) {
+        requireAdmin();
+        long revision = parseIfMatch(ifMatch);
+        String changeReason = body != null ? body.changeReason() : null;
+        PolicyHead head = lifecycleStore.deactivate(id, revision, authContext.callerSubject(), changeReason);
+        return Response.ok(readMapper.headView(head))
+                .tag(new EntityTag(String.valueOf(head.revision())))
+                .build();
     }
 
     @GET
@@ -232,5 +259,19 @@ public class PolicyResource {
 
     private static boolean isFull(String view) {
         return "full".equalsIgnoreCase(view);
+    }
+
+    private static long parseIfMatch(String ifMatch) {
+        if (ifMatch == null || ifMatch.isBlank()) {
+            throw new PreconditionRequiredException();
+        }
+        try {
+            String stripped = ifMatch.startsWith("\"") && ifMatch.endsWith("\"")
+                    ? ifMatch.substring(1, ifMatch.length() - 1)
+                    : ifMatch;
+            return Long.parseLong(stripped.trim());
+        } catch (NumberFormatException e) {
+            throw new PreconditionRequiredException();
+        }
     }
 }
