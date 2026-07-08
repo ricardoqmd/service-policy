@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.18](https://github.com/ricardoqmd/service-policy/compare/v0.1.17...v0.1.18) (2026-07-08)
+
+
+### Documentation
+
+* note benign 412/404 race in ADR-019 append disambiguation ([#74](https://github.com/ricardoqmd/service-policy/issues/74)) ([c3d460b](https://github.com/ricardoqmd/service-policy/commit/c3d460badfa8f2733d40b4b89a5a12d5580d1989))
+
 ## [0.1.17](https://github.com/ricardoqmd/service-policy/compare/v0.1.16...v0.1.17) (2026-07-07)
 
 
