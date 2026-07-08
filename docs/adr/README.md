@@ -29,6 +29,7 @@ both are kept for the audit trail.
 | [018](018-error-response-contract.md)          | Error response contract — RFC 9457 problem+json, conditional writes (If-Match/ETag)      | Accepted |
 | [019](019-transaction-free-write-atomicity.md) | Transaction-free write atomicity — commit-point + self-healing                           | Accepted |
 | [020](020-activation-write-path.md)            | Activation write-path — explicit-version activate + deactivate, conditional single-doc   | Accepted |
+| [021](021-evaluator-cutover-head-pointer.md)   | Evaluator cutover to the head-pointer model; legacy single-collection path removed       | Accepted |
 
 ## Relationships
 
@@ -49,6 +50,10 @@ both are kept for the audit trail.
   endpoints unbuilt; ADR-020 adds explicit-version `activate` and `deactivate` as
   admin-gated conditional writes (ADR-018) reusing the ADR-019 CAS pattern, and
   settles that only activation writes `activeContent`.
+- **ADR-021 completes the ADR-016 migration.** ADR-016 moved writes and activation
+  onto the head-pointer model but left evaluation reading the legacy `policies`
+  collection; ADR-021 cuts the evaluator over to active heads and removes the legacy
+  single-collection path, closing the ADR-019 Option A transitional window.
 - **ADR-004** defined the Phase 1.5 PEP contract surface with a stub evaluator;
   the persistent evaluator that replaced the stub is covered by ADR-008 and
   ADR-010.
@@ -61,4 +66,3 @@ both are kept for the audit trail.
   portfolio's repos.
 - The generated OpenAPI specification is **not** versioned (ADR-015); it is served
   at `/q/openapi` and written to the build output.
-
