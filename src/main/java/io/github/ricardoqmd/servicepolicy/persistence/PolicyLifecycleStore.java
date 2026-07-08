@@ -160,4 +160,77 @@ public class PolicyLifecycleStore {
 
         return nextVersion;
     }
+
+    /**
+     * Activates a specific version (version read + single-doc CAS commit point — ADR-020).
+     *
+     * <p>{@code activeContent} is copied verbatim from the version document so the evaluator can
+     * read it without a second lookup. Only this method and {@link #deactivate} write
+     * {@code activeContent} (ADR-020 §4 behavioral invariant).
+     *
+     * @throws VersionNotFoundException (404) if the version does not exist on a known policy.
+     * @throws PolicyNotFoundException (404) if neither head nor version exists.
+     * @throws PreconditionFailedException (412) if {@code ifMatch} is stale.
+     */
+    public PolicyHead activate(String policyId, int version, long ifMatch, String callerSubject, String changeReason) {
+        Optional<PolicyVersionDocument> versionDocOpt = versionRepository.findByPolicyIdAndVersion(policyId, version);
+        if (versionDocOpt.isEmpty()) {
+            if (headExists(policyId)) {
+                throw new VersionNotFoundException(policyId, version);
+            }
+            throw new PolicyNotFoundException(policyId);
+        }
+        PolicyVersionDocument versionDoc = versionDocOpt.get();
+
+        Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
+        UpdateResult cas = headRepository
+                .mongoCollection()
+                .updateOne(
+                        Filters.and(Filters.eq("policyId", policyId), Filters.eq("revision", ifMatch)),
+                        Updates.combine(
+                                Updates.set("activeVersion", version),
+                                Updates.set("activeContent", versionDoc.content),
+                                Updates.set("audit", auditDoc),
+                                Updates.inc("revision", 1L)));
+
+        if (cas.getMatchedCount() == 0) {
+            Optional<PolicyHead> existing = findHead(policyId);
+            if (existing.isPresent()) {
+                throw new PreconditionFailedException(policyId, existing.get().revision());
+            }
+            throw new PolicyNotFoundException(policyId);
+        }
+
+        return findHead(policyId).orElseThrow(() -> new PolicyNotFoundException(policyId));
+    }
+
+    /**
+     * Deactivates the policy, clearing the active version pointer (soft retire — ADR-014, ADR-020).
+     * Version history is untouched.
+     *
+     * @throws PolicyNotFoundException (404) if the policy does not exist.
+     * @throws PreconditionFailedException (412) if {@code ifMatch} is stale.
+     */
+    public PolicyHead deactivate(String policyId, long ifMatch, String callerSubject, String changeReason) {
+        Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
+        UpdateResult cas = headRepository
+                .mongoCollection()
+                .updateOne(
+                        Filters.and(Filters.eq("policyId", policyId), Filters.eq("revision", ifMatch)),
+                        Updates.combine(
+                                Updates.set("activeVersion", null),
+                                Updates.set("activeContent", null),
+                                Updates.set("audit", auditDoc),
+                                Updates.inc("revision", 1L)));
+
+        if (cas.getMatchedCount() == 0) {
+            Optional<PolicyHead> existing = findHead(policyId);
+            if (existing.isPresent()) {
+                throw new PreconditionFailedException(policyId, existing.get().revision());
+            }
+            throw new PolicyNotFoundException(policyId);
+        }
+
+        return findHead(policyId).orElseThrow(() -> new PolicyNotFoundException(policyId));
+    }
 }
