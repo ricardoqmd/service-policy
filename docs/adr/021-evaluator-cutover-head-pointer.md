@@ -139,3 +139,4 @@ an empty, unreferenced collection is inert.
   shape) → reconsider whether a shared active-policy read abstraction is warranted.
 - Real data ever lands in a legacy collection in another deployment → a one-off
   migration, not a dual-read, would be the path.
+

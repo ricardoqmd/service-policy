@@ -66,3 +66,4 @@ both are kept for the audit trail.
   portfolio's repos.
 - The generated OpenAPI specification is **not** versioned (ADR-015); it is served
   at `/q/openapi` and written to the build output.
+
