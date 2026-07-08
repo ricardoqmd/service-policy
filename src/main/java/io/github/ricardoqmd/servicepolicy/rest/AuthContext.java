@@ -3,13 +3,11 @@ package io.github.ricardoqmd.servicepolicy.rest;
 import java.util.Set;
 
 import jakarta.enterprise.context.RequestScoped;
-import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
 
 import org.eclipse.microprofile.jwt.JsonWebToken;
 
 import io.github.ricardoqmd.servicepolicy.config.ServicePolicyConfig;
+import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemException;
 import io.quarkus.security.identity.SecurityIdentity;
 
 /**
@@ -49,10 +47,7 @@ public class AuthContext {
         String name = identity.getPrincipal().getName();
         if (name != null && !name.isBlank()) return name;
 
-        throw new WebApplicationException(Response.status(Response.Status.UNAUTHORIZED)
-                .type(MediaType.APPLICATION_JSON)
-                .entity(new ApiError("UNAUTHORIZED", "no usable subject identity in token"))
-                .build());
+        throw new ProblemException(401, "UNAUTHORIZED", "no usable subject identity in token");
     }
 
     /**
@@ -86,10 +81,7 @@ public class AuthContext {
         if (requested == null || requested.isBlank()) return caller;
         if (requested.equals(caller)) return caller;
         if (!has(cfg.authz().delegation())) {
-            throw new WebApplicationException(Response.status(Response.Status.FORBIDDEN)
-                    .type(MediaType.APPLICATION_JSON)
-                    .entity(new ApiError("FORBIDDEN", "delegation marker required to query a different subject"))
-                    .build());
+            throw new ForbiddenProblemException("delegation marker required to query a different subject");
         }
         return requested;
     }

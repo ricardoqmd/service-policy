@@ -10,12 +10,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import jakarta.ws.rs.WebApplicationException;
-
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.junit.jupiter.api.Test;
 
 import io.github.ricardoqmd.servicepolicy.config.ServicePolicyConfig;
+import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemException;
 import io.quarkus.security.credential.Credential;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.smallrye.mutiny.Uni;
@@ -50,9 +49,9 @@ class AuthContextTest {
     @Test
     void callerSubjectThrows401WhenNoUsableIdentityFound() {
         AuthContext ctx = new AuthContext(plainIdentity(null, false), anyConfig());
-        WebApplicationException ex = assertThrows(WebApplicationException.class, ctx::callerSubject);
-        assertEquals(401, ex.getResponse().getStatus());
-        assertEquals("UNAUTHORIZED", ((ApiError) ex.getResponse().getEntity()).error());
+        ProblemException ex = assertThrows(ProblemException.class, ctx::callerSubject);
+        assertEquals(401, ex.getStatus());
+        assertEquals("UNAUTHORIZED", ex.getCode());
     }
 
     // ── has(Marker) ──────────────────────────────────────────────────────────
@@ -100,10 +99,9 @@ class AuthContextTest {
         AuthContext ctx = new AuthContext(
                 plainIdentity("caller", false),
                 delegationConfig(ServicePolicyConfig.Mode.ROLE, Optional.of("pdp-client"), Optional.empty()));
-        WebApplicationException ex =
-                assertThrows(WebApplicationException.class, () -> ctx.resolveEffectiveSubject("other-user"));
-        assertEquals(403, ex.getResponse().getStatus());
-        assertEquals("FORBIDDEN", ((ApiError) ex.getResponse().getEntity()).error());
+        ProblemException ex = assertThrows(ProblemException.class, () -> ctx.resolveEffectiveSubject("other-user"));
+        assertEquals(403, ex.getStatus());
+        assertEquals("FORBIDDEN", ex.getCode());
     }
 
     @Test

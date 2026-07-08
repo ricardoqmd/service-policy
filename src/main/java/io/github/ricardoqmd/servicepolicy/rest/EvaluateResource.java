@@ -53,12 +53,12 @@ public class EvaluateResource {
                     + " 'action' or 'resource.type' is blank.")
     public Response evaluate(EvaluationRequest request) {
         if (request == null || request.action() == null || request.action().isBlank()) {
-            return badRequest("action must not be blank.");
+            throw new InvalidRequestException("action must not be blank.");
         }
         if (request.resource() == null
                 || request.resource().type() == null
                 || request.resource().type().isBlank()) {
-            return badRequest("resource.type must not be blank.");
+            throw new InvalidRequestException("resource.type must not be blank.");
         }
         String subject = authContext.resolveEffectiveSubject(request.subject());
         return Response.ok(evaluator.evaluate(subject, request)).build();
@@ -77,11 +77,5 @@ public class EvaluateResource {
                 .map(r -> evaluator.evaluate(authContext.resolveEffectiveSubject(r.subject()), r))
                 .toList();
         return Response.ok(new BatchEvaluationResult(decisions)).build();
-    }
-
-    private static Response badRequest(String message) {
-        return Response.status(Response.Status.BAD_REQUEST)
-                .entity(new ApiError("BAD_REQUEST", message))
-                .build();
     }
 }

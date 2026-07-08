@@ -52,9 +52,7 @@ public class PermissionsResource {
     public Response permissions(@QueryParam("app") String app) {
         String subject = authContext.callerSubject();
         if (app == null || app.isBlank()) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(new ApiError("BAD_REQUEST", "'app' query parameter must not be blank."))
-                    .build();
+            throw new InvalidRequestException("'app' query parameter must not be blank.");
         }
         return Response.ok(new PermissionsResponse(
                         subject,

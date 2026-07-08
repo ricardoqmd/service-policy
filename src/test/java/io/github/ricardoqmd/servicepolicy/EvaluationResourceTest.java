@@ -90,7 +90,7 @@ class EvaluationResourceTest {
                 .post("/v1/evaluate")
                 .then()
                 .statusCode(400)
-                .body("error", equalTo("BAD_REQUEST"));
+                .body("code", equalTo("BAD_REQUEST"));
     }
 
     @Test
@@ -106,7 +106,7 @@ class EvaluationResourceTest {
                 .post("/v1/evaluate")
                 .then()
                 .statusCode(400)
-                .body("error", equalTo("BAD_REQUEST"));
+                .body("code", equalTo("BAD_REQUEST"));
     }
 
     @Test
@@ -142,7 +142,7 @@ class EvaluationResourceTest {
                 .post("/v1/evaluate")
                 .then()
                 .statusCode(403)
-                .body("error", equalTo("FORBIDDEN"));
+                .body("code", equalTo("FORBIDDEN"));
     }
 
     @Test
@@ -228,6 +228,6 @@ class EvaluationResourceTest {
     @Test
     @TestSecurity(user = "test-user")
     void permissionsWithoutAppReturns400() {
-        given().when().get("/v1/permissions").then().statusCode(400).body("error", equalTo("BAD_REQUEST"));
+        given().when().get("/v1/permissions").then().statusCode(400).body("code", equalTo("BAD_REQUEST"));
     }
 }
