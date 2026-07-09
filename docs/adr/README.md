@@ -31,45 +31,36 @@ both are kept for the audit trail.
 | [020](020-activation-write-path.md)            | Activation write-path — explicit-version activate + deactivate, conditional single-doc   | Accepted |
 | [021](021-evaluator-cutover-head-pointer.md)   | Evaluator cutover to the head-pointer model; legacy single-collection path removed       | Accepted |
 | [022](022-quarkus-jacoco-coverage.md)          | Adopt quarkus-jacoco for coverage instrumentation (revisits ADR-009)                     | Accepted |
+| [023](023-operand-type-validation.md)          | Operand type validation — reject literal mistyping at authoring, deny at evaluation      | Accepted |
 
 ## Relationships
 
-- **ADR-016 revises ADR-014 §7.** The policy activation mechanism moved from a
-  transactional `active` flag (two-document write, replica set required) to a
-  denormalized head-pointer (single-document atomic write, standalone Mongo). The
-  rest of ADR-014's lifecycle/CRUD contract stands.
-- **ADR-018 revises ADR-014 and ADR-017.** The optimistic-concurrency transport
-  moved from a body-carried `baseVersion` (→ 409) to conditional requests via
-  `If-Match`/ETag = `revision` (→ 412/428), and the flat error shape was replaced by
-  RFC 9457 `application/problem+json` across the whole error surface.
-- **ADR-019 refines ADR-016.** ADR-016 made activation a single-document write;
-  ADR-019 extends the same "single commit point + idempotent writes" principle to
-  create (head-first) and append (compare-and-set on `revision`), which each touch
-  two documents, so standalone Mongo stays sufficient for writes too.
-- **ADR-020 implements the activation write-path anticipated by ADR-016.** ADR-016
-  modeled activation as a single-document head write but left the store method and
-  endpoints unbuilt; ADR-020 adds explicit-version `activate` and `deactivate` as
-  admin-gated conditional writes (ADR-018) reusing the ADR-019 CAS pattern, and
-  settles that only activation writes `activeContent`.
-- **ADR-021 completes the ADR-016 migration.** ADR-016 moved writes and activation
-  onto the head-pointer model but left evaluation reading the legacy `policies`
-  collection; ADR-021 cuts the evaluator over to active heads and removes the legacy
-  single-collection path, closing the ADR-019 Option A transitional window.
-- **ADR-022 revisits ADR-009.** The standard JaCoCo agent could not measure
-  Quarkus-augmented Panache repositories (0% despite tests); ADR-022 adopts the
-  quarkus-jacoco extension as the agent. ADR-009's coverage rationale for the
-  `@Singleton` convention is superseded, but the convention is retained on the
-  CDI-proxy argument.
+- **ADR-016 revises ADR-014 §7.** Activation moved from a transactional `active`
+  flag (two-document write, replica set) to a denormalized head-pointer
+  (single-document atomic write, standalone Mongo).
+- **ADR-018 revises ADR-014 and ADR-017.** Optimistic concurrency moved from
+  body-carried `baseVersion` (→409) to `If-Match`/ETag (→412/428), and the flat
+  error shape became RFC 9457 `application/problem+json`.
+- **ADR-019 refines ADR-016.** Extends "single commit point + idempotent writes" to
+  create (head-first) and append (compare-and-set on `revision`).
+- **ADR-020 implements the activation write-path** anticipated by ADR-016:
+  explicit-version `activate`/`deactivate` as admin-gated conditional writes.
+- **ADR-021 completes the ADR-016 migration.** Evaluator reads active heads;
+  legacy single-collection path removed.
+- **ADR-022 revisits ADR-009.** Adopts quarkus-jacoco so Quarkus-augmented Panache
+  repositories are measured; `@Singleton` convention retained on the CDI-proxy
+  argument.
+- **ADR-023 refines ADR-011.** Extends the fail-safe operand rule: literal type
+  errors are rejected at authoring (`INVALID_POLICY`); runtime attribute type
+  mismatches deny (like an absent operand), so `/evaluate` never returns 500 on
+  operand type.
 - **ADR-004** defined the Phase 1.5 PEP contract surface with a stub evaluator;
-  the persistent evaluator that replaced the stub is covered by ADR-008 and
-  ADR-010.
-- **ADR-017** sets the REST response contract (collection envelope, pagination,
-  error shape) for the read/list surface introduced by ADR-014's lifecycle.
+  the persistent evaluator is covered by ADR-008 and ADR-010.
+- **ADR-017** sets the REST response contract for the read/list surface.
 
 ## Notes
 
 - ADRs are numbered per repository; numbers are not globally unique across the
   portfolio's repos.
-- The generated OpenAPI specification is **not** versioned (ADR-015); it is served
-  at `/q/openapi` and written to the build output.
+- The generated OpenAPI specification is **not** versioned (ADR-015).
 
