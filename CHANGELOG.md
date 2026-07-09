@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.25](https://github.com/ricardoqmd/service-policy/compare/v0.1.24...v0.1.25) (2026-07-09)
+
+
+### Documentation
+
+* add ADR-023 operand type validation ([#98](https://github.com/ricardoqmd/service-policy/issues/98)) ([82d5c36](https://github.com/ricardoqmd/service-policy/commit/82d5c36d58d423ebe6db0afe86a9367d4ea5b87b))
+
 ## [0.1.24](https://github.com/ricardoqmd/service-policy/compare/v0.1.23...v0.1.24) (2026-07-09)
 
 
