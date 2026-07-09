@@ -9,7 +9,6 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
-import io.github.ricardoqmd.servicepolicy.domain.exception.PolicyTypeException;
 import io.github.ricardoqmd.servicepolicy.domain.exception.UnknownAttributeException;
 import io.github.ricardoqmd.servicepolicy.domain.model.AuthorizationRequest;
 import io.github.ricardoqmd.servicepolicy.domain.model.Resource;
@@ -80,10 +79,10 @@ class ConditionEvaluatorTest {
     }
 
     @Test
-    void orderingOnNonNumberThrows() {
-        assertThrows(
-                PolicyTypeException.class,
-                () -> evaluator.holds(cmp(Operator.GT, attr("subject.attr.area"), lit(1)), request()));
+    void orderingOnNonNumericRuntimeOperandDenies() {
+        // ADR-023: a non-numeric attribute value makes the ordering comparison not hold (deny),
+        // never a server error. subject.attr.area resolves to "A" (a string), not a Number.
+        assertFalse(evaluator.holds(cmp(Operator.GT, attr("subject.attr.area"), lit(1)), request()));
     }
 
     // ---- composites ----

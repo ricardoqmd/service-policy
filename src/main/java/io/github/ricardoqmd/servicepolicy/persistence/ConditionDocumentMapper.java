@@ -64,11 +64,13 @@ public class ConditionDocumentMapper {
             throw new PolicyDocumentException("condition is missing a string '" + TYPE + "': " + doc);
         }
         return switch (type) {
-            case TYPE_COMPARISON ->
-                new Comparison(
-                        parseOperator(doc.get(OP)),
-                        operandFromDocument(asMap(doc.get(LEFT), LEFT)),
-                        operandFromDocument(asMap(doc.get(RIGHT), RIGHT)));
+            case TYPE_COMPARISON -> {
+                Operator op = parseOperator(doc.get(OP));
+                Operand left = operandFromDocument(asMap(doc.get(LEFT), LEFT));
+                Operand right = operandFromDocument(asMap(doc.get(RIGHT), RIGHT));
+                validateOrderingLiterals(op, left, right);
+                yield new Comparison(op, left, right);
+            }
             case TYPE_AND -> new And(conditionsFrom(doc));
             case TYPE_OR -> new Or(conditionsFrom(doc));
             default -> throw new PolicyDocumentException("unknown condition type: " + type);
@@ -117,6 +119,21 @@ public class ConditionDocumentMapper {
             return new Literal(doc.get(VALUE));
         }
         throw new PolicyDocumentException("operand must have '" + REF + "' or '" + VALUE + "': " + doc);
+    }
+
+    private static void validateOrderingLiterals(Operator op, Operand left, Operand right) {
+        if (!op.isOrdering()) {
+            return;
+        }
+        checkOrderingLiteral(op, "left", left);
+        checkOrderingLiteral(op, "right", right);
+    }
+
+    private static void checkOrderingLiteral(Operator op, String side, Operand operand) {
+        if (operand instanceof Literal lit && !(lit.value() instanceof Number)) {
+            throw new PolicyDocumentException("operator " + op.name() + " requires a numeric literal for the " + side
+                    + " operand, got: " + lit.value());
+        }
     }
 
     private static Operator parseOperator(Object raw) {
