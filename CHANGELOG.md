@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.24](https://github.com/ricardoqmd/service-policy/compare/v0.1.23...v0.1.24) (2026-07-09)
+
+
+### Code Refactoring
+
+* centralize error contract in neutral problem package ([#93](https://github.com/ricardoqmd/service-policy/issues/93)) ([5a52375](https://github.com/ricardoqmd/service-policy/commit/5a52375c34a2a7376aa5a054d8d7420a139c22db))
+
 ## [0.1.23](https://github.com/ricardoqmd/service-policy/compare/v0.1.22...v0.1.23) (2026-07-09)
 
 
