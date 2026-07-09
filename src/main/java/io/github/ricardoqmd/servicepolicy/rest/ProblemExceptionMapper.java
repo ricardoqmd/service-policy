@@ -1,8 +1,10 @@
-package io.github.ricardoqmd.servicepolicy.rest.problem;
+package io.github.ricardoqmd.servicepolicy.rest;
 
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
+
+import io.github.ricardoqmd.servicepolicy.problem.ProblemException;
 
 @Provider
 public class ProblemExceptionMapper implements ExceptionMapper<ProblemException> {

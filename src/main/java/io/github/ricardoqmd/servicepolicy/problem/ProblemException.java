@@ -1,4 +1,4 @@
-package io.github.ricardoqmd.servicepolicy.rest.problem;
+package io.github.ricardoqmd.servicepolicy.problem;
 
 public class ProblemException extends RuntimeException {
 

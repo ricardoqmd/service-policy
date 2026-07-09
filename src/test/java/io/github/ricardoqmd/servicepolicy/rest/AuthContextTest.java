@@ -14,7 +14,7 @@ import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.junit.jupiter.api.Test;
 
 import io.github.ricardoqmd.servicepolicy.config.ServicePolicyConfig;
-import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemException;
+import io.github.ricardoqmd.servicepolicy.problem.ProblemException;
 import io.quarkus.security.credential.Credential;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.smallrye.mutiny.Uni;

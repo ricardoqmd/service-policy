@@ -1,9 +1,6 @@
-package io.github.ricardoqmd.servicepolicy.persistence;
+package io.github.ricardoqmd.servicepolicy.problem;
 
 import java.util.List;
-
-import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemDetail;
-import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemException;
 
 public class PolicyValidationException extends ProblemException {
 

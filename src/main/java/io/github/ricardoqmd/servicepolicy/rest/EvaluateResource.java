@@ -17,6 +17,7 @@ import io.github.ricardoqmd.servicepolicy.evaluation.BatchEvaluationResult;
 import io.github.ricardoqmd.servicepolicy.evaluation.Decision;
 import io.github.ricardoqmd.servicepolicy.evaluation.EvaluationRequest;
 import io.github.ricardoqmd.servicepolicy.evaluation.PolicyEvaluator;
+import io.github.ricardoqmd.servicepolicy.problem.InvalidRequestException;
 import io.quarkus.security.Authenticated;
 
 /**

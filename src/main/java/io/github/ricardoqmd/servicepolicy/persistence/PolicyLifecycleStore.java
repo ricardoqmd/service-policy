@@ -16,7 +16,10 @@ import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.UpdateResult;
 
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
-import io.github.ricardoqmd.servicepolicy.rest.PreconditionFailedException;
+import io.github.ricardoqmd.servicepolicy.problem.PolicyAlreadyExistsException;
+import io.github.ricardoqmd.servicepolicy.problem.PolicyNotFoundException;
+import io.github.ricardoqmd.servicepolicy.problem.PreconditionFailedException;
+import io.github.ricardoqmd.servicepolicy.problem.VersionNotFoundException;
 
 /**
  * Mediates between the head-pointer repositories (ADR-016) and the read/evaluate models, keeping
