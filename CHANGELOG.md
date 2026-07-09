@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.23](https://github.com/ricardoqmd/service-policy/compare/v0.1.22...v0.1.23) (2026-07-09)
+
+
+### Features
+
+* evaluator cutover to head-pointer model; remove legacy policy store  ([#89](https://github.com/ricardoqmd/service-policy/issues/89)) ([286e58c](https://github.com/ricardoqmd/service-policy/commit/286e58c226638a309dbe5a30aea8d70839f579f0))
+
 ## [0.1.22](https://github.com/ricardoqmd/service-policy/compare/v0.1.21...v0.1.22) (2026-07-08)
 
 
