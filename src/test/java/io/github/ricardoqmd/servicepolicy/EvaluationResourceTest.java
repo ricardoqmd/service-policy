@@ -193,6 +193,55 @@ class EvaluationResourceTest {
     }
 
     @Test
+    @TestSecurity(user = "test-user")
+    void evaluateMissingActionFieldReturns400() {
+        // action field absent → action == null branch in EvaluateResource
+        given().contentType(ContentType.JSON)
+                .body("{}")
+                .when()
+                .post("/v1/evaluate")
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    @Test
+    @TestSecurity(user = "test-user")
+    void evaluateResourceWithNoTypeFieldReturns400() {
+        // resource present but no type field → resource.type() == null branch
+        given().contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "action": "document:read",
+                          "resource": {"id": "d1"}
+                        }
+                        """)
+                .when()
+                .post("/v1/evaluate")
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    @Test
+    @TestSecurity(user = "test-user")
+    void evaluateResourceWithBlankTypeReturns400() {
+        // resource.type is blank → resource.type().isBlank() == true branch
+        given().contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "action": "document:read",
+                          "resource": {"type": "", "id": "d1"}
+                        }
+                        """)
+                .when()
+                .post("/v1/evaluate")
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    @Test
     void batchWithoutAuthorizationReturns401() {
         given().contentType(ContentType.JSON)
                 .body("""
