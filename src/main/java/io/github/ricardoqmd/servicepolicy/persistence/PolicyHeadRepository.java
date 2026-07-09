@@ -39,4 +39,13 @@ public class PolicyHeadRepository implements PanacheMongoRepository<PolicyHeadDo
     public boolean existsByPolicyId(String policyId) {
         return count("{'policyId': ?1}", policyId) > 0;
     }
+
+    /**
+     * @return all active heads (non-null {@code activeVersion}) for the given resource type.
+     *     Returns the complete set — not paged — because the evaluator needs every candidate.
+     */
+    public List<PolicyHeadDocument> findActiveByResourceType(String resourceType) {
+        return find("{'activeVersion': {$ne: null}, 'resourceType': ?1}", resourceType)
+                .list();
+    }
 }

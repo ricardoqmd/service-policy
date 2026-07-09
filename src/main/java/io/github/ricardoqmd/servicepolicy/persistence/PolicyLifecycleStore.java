@@ -19,12 +19,12 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.rest.PreconditionFailedException;
 
 /**
- * Mediates between the head-pointer repositories (ADR-016) and the read models, keeping the REST
- * layer off Panache. Write invariants (ADR-019): head-first idempotent create with commit point at
- * version insert; CAS-guarded append with commit point at CAS update.
+ * Mediates between the head-pointer repositories (ADR-016) and the read/evaluate models, keeping
+ * the REST and evaluation layers off Panache. Write invariants (ADR-019): head-first idempotent
+ * create with commit point at version insert; CAS-guarded append with commit point at CAS update.
  *
- * <p>Introduced alongside the legacy {@link PolicyStore}, which keeps serving the evaluator from
- * the {@code policies} collection until the activation slice repoints it (ADR-016).
+ * <p>After the evaluator cutover (ADR-021) this store is the sole source of policy data for reads,
+ * writes, activation, and evaluation; the legacy {@code policies} collection is abandoned.
  */
 // @Singleton (not @ApplicationScoped): stateless bean, no proxy needed (see ADR-009).
 @Singleton
@@ -80,6 +80,16 @@ public class PolicyLifecycleStore {
     /** @return the specific version of the given policy, if present. */
     public Optional<PolicyVersion> findVersion(String policyId, int version) {
         return versionRepository.findByPolicyIdAndVersion(policyId, version).map(mapper::version);
+    }
+
+    /**
+     * @return all active policies for the given resource type, for use by the evaluator (ADR-021).
+     *     Returns the complete set — not paged — so the evaluator sees every candidate.
+     */
+    public List<Policy> activePoliciesFor(String resourceType) {
+        return headRepository.findActiveByResourceType(resourceType).stream()
+                .map(mapper::activeContentPolicy)
+                .toList();
     }
 
     /**

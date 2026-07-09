@@ -14,15 +14,19 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.ConditionEvaluator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.PolicyEngine;
 import io.github.ricardoqmd.servicepolicy.domain.policy.PolicySelector;
-import io.github.ricardoqmd.servicepolicy.persistence.PolicyStore;
+import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 
 /**
  * Persistence-backed {@link PolicyEvaluator}: loads the active policies for the resource type from
- * MongoDB, selects those applicable to the request, and evaluates them with the pure-domain
- * {@link PolicyEngine} (deny-overrides). Replaces the Phase 1.5 stub (ADR-004) per ADR-008/ADR-010.
+ * MongoDB via the head-pointer model (ADR-021), selects those applicable to the request, and
+ * evaluates them with the pure-domain {@link PolicyEngine} (deny-overrides). Replaces the Phase 1.5
+ * stub (ADR-004) per ADR-008/ADR-010.
  *
  * <p>Subject identity arrives as a parameter (resolved from the JWT); non-identity subject
  * attributes are resolved through {@link SubjectAttributeProvider} (caller-asserted in the MVP).
+ *
+ * <p>Evaluation chain: REST → JWT subject → PolicyLifecycleStore → PolicySelector → PolicyEngine →
+ * Decision.
  */
 // @Singleton (not @ApplicationScoped): stateless bean, no proxy needed (see ADR-009).
 @Singleton
@@ -31,13 +35,13 @@ public class PersistentPolicyEvaluator implements PolicyEvaluator {
     // TODO(bulk-permissions ADR): /v1/permissions has no policy-set version concept yet.
     private static final String POLICY_SET_VERSION = "0";
 
-    private final PolicyStore policyStore;
+    private final PolicyLifecycleStore lifecycleStore;
     private final SubjectAttributeProvider attributeProvider;
     private final PolicySelector selector = new PolicySelector();
     private final PolicyEngine engine = new PolicyEngine(new ConditionEvaluator());
 
-    PersistentPolicyEvaluator(PolicyStore policyStore, SubjectAttributeProvider attributeProvider) {
-        this.policyStore = policyStore;
+    PersistentPolicyEvaluator(PolicyLifecycleStore lifecycleStore, SubjectAttributeProvider attributeProvider) {
+        this.lifecycleStore = lifecycleStore;
         this.attributeProvider = attributeProvider;
     }
 
@@ -53,7 +57,7 @@ public class PersistentPolicyEvaluator implements PolicyEvaluator {
 
         AuthorizationRequest authzRequest = toAuthorizationRequest(subject, request);
         List<Policy> candidates =
-                policyStore.activePoliciesFor(authzRequest.resource().type());
+                lifecycleStore.activePoliciesFor(authzRequest.resource().type());
         List<Policy> applicable = selector.select(candidates, authzRequest);
         AuthorizationDecision decision = engine.evaluate(applicable, authzRequest);
 

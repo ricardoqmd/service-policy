@@ -10,7 +10,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
-import io.github.ricardoqmd.servicepolicy.persistence.PolicyRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
@@ -53,9 +52,6 @@ class PolicyResourceTest {
             """;
 
     @Inject
-    PolicyRepository policyRepository;
-
-    @Inject
     PolicyHeadRepository headRepository;
 
     @Inject
@@ -63,7 +59,6 @@ class PolicyResourceTest {
 
     @BeforeEach
     void clean() {
-        policyRepository.deleteAll();
         headRepository.deleteAll();
         versionRepository.deleteAll();
     }
