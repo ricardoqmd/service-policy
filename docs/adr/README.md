@@ -30,6 +30,7 @@ both are kept for the audit trail.
 | [019](019-transaction-free-write-atomicity.md) | Transaction-free write atomicity — commit-point + self-healing                           | Accepted |
 | [020](020-activation-write-path.md)            | Activation write-path — explicit-version activate + deactivate, conditional single-doc   | Accepted |
 | [021](021-evaluator-cutover-head-pointer.md)   | Evaluator cutover to the head-pointer model; legacy single-collection path removed       | Accepted |
+| [022](022-quarkus-jacoco-coverage.md)          | Adopt quarkus-jacoco for coverage instrumentation (revisits ADR-009)                     | Accepted |
 
 ## Relationships
 
@@ -54,6 +55,11 @@ both are kept for the audit trail.
   onto the head-pointer model but left evaluation reading the legacy `policies`
   collection; ADR-021 cuts the evaluator over to active heads and removes the legacy
   single-collection path, closing the ADR-019 Option A transitional window.
+- **ADR-022 revisits ADR-009.** The standard JaCoCo agent could not measure
+  Quarkus-augmented Panache repositories (0% despite tests); ADR-022 adopts the
+  quarkus-jacoco extension as the agent. ADR-009's coverage rationale for the
+  `@Singleton` convention is superseded, but the convention is retained on the
+  CDI-proxy argument.
 - **ADR-004** defined the Phase 1.5 PEP contract surface with a stub evaluator;
   the persistent evaluator that replaced the stub is covered by ADR-008 and
   ADR-010.

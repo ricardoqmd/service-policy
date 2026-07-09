@@ -44,6 +44,8 @@
         <palantir-java-format.version>2.90.0</palantir-java-format.version>
 
         <skipITs>true</skipITs>
+        <!-- Empty default: quarkus-jacoco injects its own agent; prepare-agent is not used. -->
+        <argLine/>
     </properties>
 
     <dependencyManagement>
@@ -122,6 +124,11 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-test-security-oidc</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jacoco</artifactId>
             <scope>test</scope>
         </dependency>
 
@@ -271,17 +278,24 @@
             </plugin>
 
             <!-- ════════════════════════════════════════════════════════════
-                 JaCoCo: test coverage reports
+                 JaCoCo: coverage report + gate
                  ════════════════════════════════════════════════════════════
-                 prepare-agent → instruments the JVM during tests.
-                 report        → after tests, generates HTML+XML report at:
-                                 target/site/jacoco/index.html
-                                 target/site/jacoco/jacoco.xml
-                 check         → fails the build if coverage thresholds aren't met.
+                 The coverage AGENT is provided by the quarkus-jacoco extension
+                 (test dependency), which instruments Quarkus-augmented classes
+                 (CDI beans, Panache repositories) that the standard jacoco agent
+                 cannot see. It writes execution data to:
+                     target/jacoco-quarkus.exec
+
+                 This plugin no longer runs prepare-agent. It only:
+                   report → reads jacoco-quarkus.exec and writes the report to
+                            target/site/jacoco/{index.html,jacoco.xml}
+                            (jacoco.xml is what SonarCloud consumes).
+                   check  → enforces the coverage gate against the same .exec.
+
+                 See ADR-022 (revisits ADR-009).
 
                  Run:
-                   ./mvnw test          → only runs tests + JaCoCo report
-                   ./mvnw verify        → full build, includes spotless + jacoco check
+                   ./mvnw verify   → tests (quarkus-jacoco agent) + report + check
                  ════════════════════════════════════════════════════════════ -->
             <plugin>
                 <groupId>org.jacoco</groupId>
@@ -289,17 +303,16 @@
                 <version>${jacoco-plugin.version}</version>
                 <executions>
                     <execution>
-                        <id>prepare-agent</id>
-                        <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                    </execution>
-                    <execution>
                         <id>report</id>
                         <goals>
                             <goal>report</goal>
                         </goals>
                         <phase>verify</phase>
+                        <configuration>
+                            <!-- quarkus-jacoco writes to jacoco-quarkus.exec; the standard
+                                 prepare-agent is omitted because quarkus injects its own agent. -->
+                            <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
+                        </configuration>
                     </execution>
                     <execution>
                         <id>jacoco-check</id>
@@ -308,6 +321,7 @@
                         </goals>
                         <phase>verify</phase>
                         <configuration>
+                            <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>
