@@ -7,7 +7,8 @@ import jakarta.enterprise.context.RequestScoped;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 
 import io.github.ricardoqmd.servicepolicy.config.ServicePolicyConfig;
-import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemException;
+import io.github.ricardoqmd.servicepolicy.problem.ForbiddenProblemException;
+import io.github.ricardoqmd.servicepolicy.problem.ProblemException;
 import io.quarkus.security.identity.SecurityIdentity;
 
 /**

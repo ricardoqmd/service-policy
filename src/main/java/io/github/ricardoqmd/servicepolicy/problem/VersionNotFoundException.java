@@ -1,7 +1,4 @@
-package io.github.ricardoqmd.servicepolicy.persistence;
-
-import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemDetail;
-import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemException;
+package io.github.ricardoqmd.servicepolicy.problem;
 
 public class VersionNotFoundException extends ProblemException {
 

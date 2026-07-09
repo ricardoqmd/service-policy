@@ -14,6 +14,7 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
 import io.github.ricardoqmd.servicepolicy.evaluation.PermissionsResponse;
 import io.github.ricardoqmd.servicepolicy.evaluation.PolicyEvaluator;
+import io.github.ricardoqmd.servicepolicy.problem.InvalidRequestException;
 import io.quarkus.security.Authenticated;
 
 /**

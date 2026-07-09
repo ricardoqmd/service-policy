@@ -27,11 +27,14 @@ import io.github.ricardoqmd.servicepolicy.persistence.PolicyDocumentException;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyDocumentMapper;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHead;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
-import io.github.ricardoqmd.servicepolicy.persistence.PolicyNotFoundException;
-import io.github.ricardoqmd.servicepolicy.persistence.PolicyValidationException;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersion;
-import io.github.ricardoqmd.servicepolicy.persistence.VersionNotFoundException;
-import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemDetail;
+import io.github.ricardoqmd.servicepolicy.problem.ForbiddenProblemException;
+import io.github.ricardoqmd.servicepolicy.problem.InvalidRequestException;
+import io.github.ricardoqmd.servicepolicy.problem.PolicyNotFoundException;
+import io.github.ricardoqmd.servicepolicy.problem.PolicyValidationException;
+import io.github.ricardoqmd.servicepolicy.problem.PreconditionRequiredException;
+import io.github.ricardoqmd.servicepolicy.problem.ProblemDetail;
+import io.github.ricardoqmd.servicepolicy.problem.VersionNotFoundException;
 import io.quarkus.security.Authenticated;
 
 /**

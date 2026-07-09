@@ -1,6 +1,4 @@
-package io.github.ricardoqmd.servicepolicy.rest;
-
-import io.github.ricardoqmd.servicepolicy.rest.problem.ProblemException;
+package io.github.ricardoqmd.servicepolicy.problem;
 
 public class ForbiddenProblemException extends ProblemException {
 
