@@ -3,7 +3,7 @@
 [![CI](https://github.com/ricardoqmd/service-policy/actions/workflows/ci.yml/badge.svg)](https://github.com/ricardoqmd/service-policy/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
-[![Quarkus](https://img.shields.io/badge/Quarkus-3.33%20LTS-blueviolet.svg)](https://quarkus.io/)
+[![Quarkus](https://img.shields.io/badge/Quarkus-3.37%20LTS-blueviolet.svg)](https://quarkus.io/)
 [![MongoDB](https://img.shields.io/badge/MongoDB-7-green.svg)](https://www.mongodb.com/)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg)](https://conventionalcommits.org)
 [![Status](https://img.shields.io/badge/status-alpha-red.svg)](#roadmap)
@@ -82,12 +82,24 @@ docker compose -f docker-compose.native.yml up -d
 
 Service Policy implements the classic XACML-inspired three-component pattern:
 
-- **Policy Decision Point (PDP)** — this service. Receives an authorization
-  query and returns an allow/deny decision (boolean `allowed`).
-- **Policy Enforcement Point (PEP)** — your application, API gateway, or
-  frontend. Calls this service and acts on the result.
-- **Policy Administration Point (PAP)** — your admin tooling. Manages policies
-  through the admin API (Phase 6).
+- **Policy Decision Point (PDP)** — this service. Evaluates authorization queries
+  and returns allow/deny decisions, and also exposes the full policy authoring API
+  (create, version, activate, deactivate).
+- **Policy Enforcement Point (PEP)** — your application, API gateway, or frontend.
+  Calls this service and acts on the result.
+- **Policy Administration Point (PAP)** — a separate control-plane application
+  (UI + backend) that consumes the authoring API of this service. Planned as an
+  independent component.
+
+**Persistence model.** Policies are stored in MongoDB using a head-pointer model:
+`policy_heads` holds the current active version pointer; `policy_versions` holds the
+immutable append-only version history. Requires a standalone MongoDB instance (no
+replica set needed for development).
+
+**Hexagonal layering.** The codebase is divided into `domain` (pure Java — no
+framework dependencies), `persistence` (MongoDB/Panache), `rest` (RESTEasy Reactive),
+`evaluation`, `problem`, and `config`. Layering invariants are enforced at build time
+by [ArchUnit](https://www.archunit.org/) rules in the test suite.
 
 For the full architecture rationale, trade-offs, and query model see
 [docs/architecture.md](docs/architecture.md).
@@ -172,6 +184,124 @@ Relevant ADRs:
 
 ---
 
+## Policy administration (v1)
+
+All policy authoring and lifecycle endpoints require the admin marker (see
+[Authorization markers](#authorization-markers-adr-013) above). Errors follow the
+RFC 9457 `application/problem+json` contract — see [docs/ERRORS.md](docs/ERRORS.md)
+for the full error catalog.
+
+### Endpoints
+
+| Method |                  Path                  |                       Description                       |
+|--------|----------------------------------------|---------------------------------------------------------|
+| POST   | `/v1/policies`                         | Create a policy (version 1, inactive)                   |
+| PUT    | `/v1/policies/{id}`                    | Append version N+1 (conditional write)                  |
+| POST   | `/v1/policies/{id}/activate`           | Activate a specific version (conditional write)         |
+| POST   | `/v1/policies/{id}/deactivate`         | Soft-deactivate — history preserved (conditional write) |
+| GET    | `/v1/policies`                         | List policy heads (paginated; `?view=full` for content) |
+| GET    | `/v1/policies/{id}`                    | Get a policy head + `ETag`                              |
+| GET    | `/v1/policies/{id}/versions`           | List all versions (paginated)                           |
+| GET    | `/v1/policies/{id}/versions/{version}` | Get one immutable version                               |
+
+### Policy lifecycle
+
+```
+CREATE (inactive v1) → APPEND (immutable v2, v3, …) → ACTIVATE (explicit) → DEACTIVATE (soft)
+```
+
+Key invariants:
+
+- At most one version is active per policy at any time.
+- Versions are immutable once appended; a change means appending a new version.
+- Activation is always explicit: `POST /activate` with the target version number.
+- Deactivating soft-retires a policy — all versions are preserved, nothing is deleted.
+  A policy with no active version evaluates to the fail-safe default deny.
+
+### Optimistic concurrency
+
+Append, activate, and deactivate are conditional writes: they require an `If-Match`
+header carrying the policy head's current `ETag`.
+
+| Status |                              Meaning                              |
+|--------|-------------------------------------------------------------------|
+| `428`  | `If-Match` is absent — read the resource first to obtain the ETag |
+| `412`  | ETag is stale — another write happened; reload and retry          |
+
+### Example: create and activate a policy
+
+```http
+# 1) Create (inactive, version 1)
+POST /v1/policies
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+
+{
+  "policyId": "doc-access",
+  "version": 1,
+  "resourceType": "document",
+  "actions": ["*"],
+  "combiningAlgorithm": "DENY_OVERRIDES",
+  "defaultEffect": "DENY",
+  "rules": [
+    { "id": "assigned-access", "effect": "PERMIT",
+      "condition": { "type": "comparison", "op": "IN",
+        "left": {"ref": "subject.id"}, "right": {"ref": "resource.attr.assignees"} } },
+    { "id": "sealed-deny", "effect": "DENY",
+      "condition": { "type": "comparison", "op": "EQ",
+        "left": {"ref": "resource.attr.sealed"}, "right": {"value": true} } }
+  ]
+}
+# → 201 Created  {"policyId":"doc-access","version":1,"active":false}
+
+# 2) Read ETag from the head
+GET /v1/policies/doc-access
+# → 200 OK  ETag: "0"
+
+# 3) Activate (policy is now evaluable)
+POST /v1/policies/doc-access/activate
+Authorization: Bearer <admin-token>
+If-Match: "0"
+Content-Type: application/json
+
+{"version": 1}
+# → 200 OK
+```
+
+See [docs/policies-demo.http](docs/policies-demo.http) for a runnable HTTP file
+(VS Code REST Client / IntelliJ HTTP Client) with create, evaluate, and conflict scenarios.
+
+### Policy document shape
+
+|        Field         |   Type   |                  Description                   |
+|----------------------|----------|------------------------------------------------|
+| `policyId`           | string   | Unique identifier for this policy              |
+| `version`            | integer  | `1` on create; `N+1` on every append           |
+| `resourceType`       | string   | The resource type this policy applies to       |
+| `actions`            | string[] | Action strings or `["*"]` to match all         |
+| `combiningAlgorithm` | string   | `DENY_OVERRIDES` (single applicable DENY wins) |
+| `defaultEffect`      | string   | `PERMIT` or `DENY` when no rule matches        |
+| `rules`              | Rule[]   | Ordered list of rules                          |
+
+Each `Rule` has `id` (string), `effect` (`PERMIT`/`DENY`), and a `condition`.
+
+**Condition types.** Leaf: `{"type":"comparison","op":"<OP>","left":<operand>,"right":<operand>}`.
+Composites: `{"type":"and"|"or","conditions":[…]}`.
+
+**Operators.** `EQ`, `NEQ`, `IN`, `NOT_IN` (equality / membership);
+`GT`, `GTE`, `LT`, `LTE` (ordering — operands must be numeric).
+
+**Operands.** Attribute reference: `{"ref":"subject.id"}` (paths: `subject.id`,
+`subject.attr.*`, `resource.type`, `resource.id`, `resource.attr.*`, `context.*`).
+Literal: `{"value":<json-value>}`.
+
+**Authoring validation.** An ordering operator (`GT`/`GTE`/`LT`/`LTE`) with a
+non-numeric literal is rejected at create/append (`400 INVALID_POLICY`). A reference
+operand that resolves to a non-numeric value at evaluation time yields a deny — never
+a 500 error.
+
+---
+
 ## Project structure
 
 ```
@@ -199,58 +329,63 @@ service-policy/
 ├── docs/
 │   ├── architecture.md              # Architecture deep-dive
 │   ├── openapi.yaml                 # Frozen PEP contract (generated at build)
-│   └── adr/                         # Architecture Decision Records
-│       ├── 001-dedicated-abac-pdp.md
-│       ├── 002-quarkus-java21.md
-│       ├── 003-authentication-oidc-jwt-jwks.md
-│       ├── 004-pep-contract-surface-and-stub.md
-│       ├── 005-attribute-id-keying.md
-│       └── 006-tenancy-model.md
+│   ├── ERRORS.md                    # RFC 9457 error catalog (machine-readable codes)
+│   ├── policies-demo.http           # Runnable HTTP file: author + evaluate (REST Client)
+│   └── adr/                         # Architecture Decision Records (ADR-001 … ADR-023+)
 └── src/
     ├── main/
     │   ├── docker/                  # Dockerfile.jvm / .legacy-jar / .native / .native-micro
     │   ├── java/io/github/ricardoqmd/servicepolicy/
     │   │   ├── config/              # Typed config (ServicePolicyConfig, AuthzConfigValidator)
+    │   │   ├── domain/              # Pure domain — no framework dependencies (ArchUnit-guarded)
+    │   │   │   ├── exception/       # Domain exceptions
+    │   │   │   ├── model/           # AuthorizationRequest, Resource, Subject
+    │   │   │   └── policy/          # Policy, Rule, Condition AST, ConditionEvaluator, PolicyEngine
     │   │   ├── evaluation/          # Port: PolicyEvaluator, PersistentPolicyEvaluator, DTOs
     │   │   ├── health/              # Liveness / readiness checks
-    │   │   └── rest/                # HTTP endpoints (EvaluateResource, PermissionsResource, …)
+    │   │   ├── persistence/         # MongoDB: mappers, repositories, PolicyLifecycleStore
+    │   │   ├── problem/             # RFC 9457 ProblemException hierarchy
+    │   │   └── rest/                # HTTP endpoints (EvaluateResource, PolicyResource, …)
     │   └── resources/
     │       └── application.yml      # Default configuration
     └── test/
         └── java/io/github/ricardoqmd/servicepolicy/
-            ├── ApplicationSmokeTest.java
-            └── EvaluationResourceTest.java
+            ├── architecture/        # ArchUnit hexagonal layer rules (5 rules)
+            ├── domain/policy/       # Pure domain unit tests
+            ├── persistence/         # Mapper and repository tests
+            └── *.java               # @QuarkusTest integration tests (evaluation, authoring, …)
 ```
 
 ---
 
 ## Roadmap
 
-|  Phase  |                                                                                           Description                                                                                           | Status  |
-|---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
-| **1**   | **Skeleton.** Quarkus project, configuration, healthchecks, metrics, smoke tests, CI, Docker.                                                                                                   | ✅ Done  |
-| **1.5** | **PEP contract surface + deterministic stub.** REST endpoints live (`/v1/evaluate`, `/v1/evaluate/batch`, `GET /v1/permissions`), OpenAPI contract frozen; no persistence; no JWT verification. | ✅ Done  |
-| **2**   | **Domain & persistence.** Policy model, condition AST, MongoDB integration; real `PolicyEvaluator` replaces the stub; deny-overrides combining algorithm.                                       | ✅ Done  |
-| **3**   | **OIDC/JWKS validation.** Bearer-only resource server; mode-based authz markers (admin + delegation); hybrid subject-provenance rule; mandatory startup validation; stub removed.               | ✅ Done  |
-| **4**   | **Admin API / PAP.** Policy CRUD, versioning, audit log.                                                                                                                                        | Planned |
-| **5**   | **Production hardening.** TLS, secrets management, structured audit.                                                                                                                            | Planned |
-| **6**   | **Kubernetes.** Helm charts, ConfigMaps, NetworkPolicies, HPA.                                                                                                                                  | Planned |
+|  Phase  |                                                                                                                                                                                             Description                                                                                                                                                                                              | Status  |
+|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
+| **1**   | **Skeleton.** Quarkus project, configuration, healthchecks, metrics, smoke tests, CI, Docker.                                                                                                                                                                                                                                                                                                        | ✅ Done  |
+| **1.5** | **PEP contract surface + deterministic stub.** REST endpoints live (`/v1/evaluate`, `/v1/evaluate/batch`, `GET /v1/permissions`), OpenAPI contract frozen; no persistence; no JWT verification.                                                                                                                                                                                                      | ✅ Done  |
+| **2**   | **Domain & persistence.** Policy model, condition AST, MongoDB integration; real `PolicyEvaluator` replaces the stub; deny-overrides combining algorithm.                                                                                                                                                                                                                                            | ✅ Done  |
+| **3**   | **OIDC/JWKS validation.** Bearer-only resource server; mode-based authz markers (admin + delegation); hybrid subject-provenance rule; mandatory startup validation; stub removed.                                                                                                                                                                                                                    | ✅ Done  |
+| **3.5** | **Policy authoring & lifecycle.** Full admin API in the PDP: create, append-only versioning, explicit activation, soft deactivation. Head-pointer persistence model (`policy_heads` + `policy_versions`). Error contract (RFC 9457 problem+json). Optimistic concurrency (If-Match/ETag). ArchUnit hexagonal layer guard. Coverage tooling (JaCoCo + SonarCloud). Operand-type validation (ADR-023). | ✅ Done  |
+| **4**   | **PAP front-end.** Dedicated control-plane application (UI + backend) that consumes the policy authoring API already in this service. The policy CRUD / versioning / activation API itself is done (Phase 3.5); this phase is the separate PAP component.                                                                                                                                            | Planned |
+| **5**   | **Production hardening.** TLS termination, secrets management, structured evaluation audit log.                                                                                                                                                                                                                                                                                                      | Planned |
+| **6**   | **Kubernetes.** Helm charts, ConfigMaps, NetworkPolicies, HPA.                                                                                                                                                                                                                                                                                                                                       | Planned |
 
 ---
 
 ## Comparison with alternatives
 
-|     Feature      |  Service Policy   |   Keycloak Authz    |     OPA      |   Casbin   |
-|------------------|-------------------|---------------------|--------------|------------|
-| Protocol         | REST/JSON         | UMA 2.0 / REST      | REST/gRPC    | Library    |
-| Policy storage   | MongoDB (Phase 2) | Keycloak DB         | Bundle / API | File / DB  |
-| Policy language  | JSON AST (v1)     | GUI / JSON          | Rego         | PERM model |
-| ABAC conditions  | Yes (roadmap)     | Limited             | Yes          | Yes        |
-| Audit log        | Yes (roadmap)     | Limited             | Yes (OPA)    | No         |
-| Separate service | Yes               | Bundled in Keycloak | Yes          | No         |
-| Java 21 native   | Yes               | No                  | No           | No         |
-| Kubernetes-ready | Yes               | Yes                 | Yes          | No         |
-| Learning curve   | Low               | Medium              | High (Rego)  | Medium     |
+|     Feature      |      Service Policy      |   Keycloak Authz    |     OPA      |   Casbin   |
+|------------------|--------------------------|---------------------|--------------|------------|
+| Protocol         | REST/JSON                | UMA 2.0 / REST      | REST/gRPC    | Library    |
+| Policy storage   | MongoDB                  | Keycloak DB         | Bundle / API | File / DB  |
+| Policy language  | JSON AST (v1)            | GUI / JSON          | Rego         | PERM model |
+| ABAC conditions  | Yes                      | Limited             | Yes          | Yes        |
+| Audit log        | Lifecycle (eval planned) | Limited             | Yes (OPA)    | No         |
+| Separate service | Yes                      | Bundled in Keycloak | Yes          | No         |
+| Java 21 native   | Yes                      | No                  | No           | No         |
+| Kubernetes-ready | Yes                      | Yes                 | Yes          | No         |
+| Learning curve   | Low                      | Medium              | High (Rego)  | Medium     |
 
 > This is not a port of any of these. Service Policy is an opinionated alternative
 > for teams that want full control over their authorization stack without operating
@@ -260,23 +395,19 @@ service-policy/
 
 ## Tooling
 
-|                                                            Tool                                                             |               Purpose               |
-|-----------------------------------------------------------------------------------------------------------------------------|-------------------------------------|
-| [Spotless](https://github.com/diffplug/spotless) + [Palantir Java Format](https://github.com/palantir/palantir-java-format) | Deterministic code formatting       |
-| [JaCoCo](https://www.jacoco.org/)                                                                                           | Code coverage enforcement           |
-| [GitHub Actions](https://docs.github.com/en/actions)                                                                        | CI pipeline (build, test, gitleaks) |
-| [Conventional Commits 1.0.0](https://conventionalcommits.org)                                                               | Structured commit history           |
-| [Semantic Versioning 2.0.0](https://semver.org)                                                                             | Release versioning                  |
-| [Release Please](https://github.com/googleapis/release-please)                                                              | Automated CHANGELOG and releases    |
+|                                                            Tool                                                             |                   Purpose                    |
+|-----------------------------------------------------------------------------------------------------------------------------|----------------------------------------------|
+| [Spotless](https://github.com/diffplug/spotless) + [Palantir Java Format](https://github.com/palantir/palantir-java-format) | Deterministic code formatting                |
+| [JaCoCo](https://www.jacoco.org/) + [quarkus-jacoco](https://quarkus.io/guides/tests-with-coverage)                         | Code coverage measurement and enforcement    |
+| [SonarCloud](https://sonarcloud.io/)                                                                                        | Continuous code quality and coverage gate    |
+| [ArchUnit](https://www.archunit.org/)                                                                                       | Hexagonal layer invariants enforced at build |
+| [GitHub Actions](https://docs.github.com/en/actions)                                                                        | CI pipeline (build, test, gitleaks)          |
+| [Conventional Commits 1.0.0](https://conventionalcommits.org)                                                               | Structured commit history                    |
+| [Semantic Versioning 2.0.0](https://semver.org)                                                                             | Release versioning                           |
+| [Release Please](https://github.com/googleapis/release-please)                                                              | Automated CHANGELOG and releases             |
 
 Run `./mvnw spotless:apply` before committing to auto-format all Java and
 Markdown sources.
-
-### Considered but not included (yet)
-
-- **Codecov / SonarCloud** — planned for v1.0 once there is meaningful code
-  coverage to report. Adding them at the skeleton stage creates noise without
-  signal.
 
 ---
 
