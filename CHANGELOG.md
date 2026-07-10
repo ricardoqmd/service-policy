@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.26](https://github.com/ricardoqmd/service-policy/compare/v0.1.25...v0.1.26) (2026-07-10)
+
+
+### Bug Fixes
+
+* reject literal operand mistyping at authoring, deny at evaluation ([#101](https://github.com/ricardoqmd/service-policy/issues/101)) ([f725f00](https://github.com/ricardoqmd/service-policy/commit/f725f00834bdc59699419b1410923c7e0c656bb7))
+
 ## [0.1.25](https://github.com/ricardoqmd/service-policy/compare/v0.1.24...v0.1.25) (2026-07-09)
 
 
