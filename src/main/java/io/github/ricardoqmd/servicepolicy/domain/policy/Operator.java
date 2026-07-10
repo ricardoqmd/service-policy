@@ -15,5 +15,9 @@ public enum Operator {
     GT,
     GTE,
     LT,
-    LTE
+    LTE;
+
+    public boolean isOrdering() {
+        return this == GT || this == GTE || this == LT || this == LTE;
+    }
 }
