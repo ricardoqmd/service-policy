@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.27](https://github.com/ricardoqmd/service-policy/compare/v0.1.26...v0.1.27) (2026-07-10)
+
+
+### Documentation
+
+* document policy administration surface and update roadmap ([#104](https://github.com/ricardoqmd/service-policy/issues/104)) ([57ffc98](https://github.com/ricardoqmd/service-policy/commit/57ffc98636bae0ad1a83b399cb67eaee1b265dba))
+
 ## [0.1.26](https://github.com/ricardoqmd/service-policy/compare/v0.1.25...v0.1.26) (2026-07-10)
 
 
