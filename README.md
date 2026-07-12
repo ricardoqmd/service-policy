@@ -109,13 +109,18 @@ For the full architecture rationale, trade-offs, and query model see
 ## PEP contract (v1)
 
 Three endpoints form the stable contract that Policy Enforcement Points integrate against.
-The full machine-readable spec lives in [docs/openapi.yaml](docs/openapi.yaml).
+The machine-readable spec is generated at runtime — `GET /q/openapi` (Swagger UI at
+`/q/swagger-ui` in dev mode). It is deliberately **not** versioned in the repo
+([ADR-015](docs/adr/015-openapi-not-versioned.md)).
 
 | Method |         Path         |                      Description                       |
 |--------|----------------------|--------------------------------------------------------|
 | POST   | `/v1/evaluate`       | Single authorization request → `Decision` (allow/deny) |
 | POST   | `/v1/evaluate/batch` | Batch of requests → list of `Decision`                 |
 | GET    | `/v1/permissions`    | Cacheable flat permission list for a subject + `?app=` |
+
+Runnable request/response examples:
+[docs/http/evaluation-endpoints.http](docs/http/evaluation-endpoints.http).
 
 ### Authentication
 
@@ -268,8 +273,15 @@ Content-Type: application/json
 # → 200 OK
 ```
 
-See [docs/policies-demo.http](docs/policies-demo.http) for a runnable HTTP file
-(VS Code REST Client / IntelliJ HTTP Client) with create, evaluate, and conflict scenarios.
+Two runnable HTTP files (VS Code REST Client / IntelliJ HTTP Client) exercise the
+full contract top-down:
+
+- [docs/http/lifecycle-walkthrough.http](docs/http/lifecycle-walkthrough.http) —
+  create → version → activate → evaluate → deactivate, including every
+  RFC 9457 error shape (409/412/428/404/422/403).
+- [docs/http/evaluation-endpoints.http](docs/http/evaluation-endpoints.http) —
+  `/v1/evaluate`, `/v1/evaluate/batch` and `GET /v1/permissions` in detail,
+  including delegated queries.
 
 ### Policy document shape
 
@@ -328,9 +340,10 @@ service-policy/
 │   └── dependabot.yml               # Automated dependency updates
 ├── docs/
 │   ├── architecture.md              # Architecture deep-dive
-│   ├── openapi.yaml                 # Frozen PEP contract (generated at build)
 │   ├── ERRORS.md                    # RFC 9457 error catalog (machine-readable codes)
-│   ├── policies-demo.http           # Runnable HTTP file: author + evaluate (REST Client)
+│   ├── http/
+│   │   ├── lifecycle-walkthrough.http   # create → version → activate → evaluate → deactivate + error contracts
+│   │   └── evaluation-endpoints.http    # /v1/evaluate, /batch, /v1/permissions in detail
 │   └── adr/                         # Architecture Decision Records (ADR-001 … ADR-023+)
 └── src/
     ├── main/
