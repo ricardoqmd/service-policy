@@ -1,0 +1,218 @@
+### ============================================================================
+### service-policy — EVALUATION endpoints in detail
+###   POST /v1/evaluate        single request  → Decision
+###   POST /v1/evaluate/batch  batch requests  → { decisions: [Decision, …] }
+###   GET  /v1/permissions      subject + ?app  → cacheable flat permission list
+###
+### Companion to lifecycle-walkthrough.http. Assumes a policy is ACTIVE (run
+### steps 1–6 of the lifecycle file first, or activate "doc-access" v2).
+###
+### Auth: {{jwt}} = any valid authenticated token. Subject is resolved from the
+### JWT (ADR-013). An explicit "subject" in the body → delegated query (needs the
+### delegation marker, else 403).
+### ============================================================================
+
+@host = http://localhost:8080
+@auth = Bearer {{jwt}}
+
+
+### ============================================================================
+### A) POST /v1/evaluate  — single authorization request → Decision
+### ============================================================================
+### REQUEST BODY (EvaluationRequest):
+###   action            (required)  "resource:verb", e.g. "document:read"
+###   resource          (required)  { type (required), id, attributes: {…} }
+###   context           (optional)  runtime attributes, e.g. {"emergency": true}
+###   subjectAttributes (optional)  non-identity subject attrs, e.g. {"area": "A"}
+###   subject           (optional)  explicit subject → delegated query (ADR-013)
+###
+### RESPONSE (Decision), always HTTP 200 for a valid request:
+###   { allowed, reason, decisionId, policyVersion, obligations: [] }
+### 400 only if action or resource.type is blank. Never 500 on operand type (ADR-023).
+
+### A1) PERMIT — subject is an assignee
+POST {{host}}/v1/evaluate
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "action": "document:read",
+  "resource": { "type": "document", "id": "d1", "attributes": { "assignees": ["test-user"] } }
+}
+
+### EXPECTED  200 OK
+### {
+###   "allowed": true,
+###   "reason": "…assigned-access…",
+###   "decisionId": "3f0c…-uuid",
+###   "policyVersion": "2",
+###   "obligations": []
+### }
+
+
+### A2) PERMIT — with subjectAttributes (area-scope rule)
+POST {{host}}/v1/evaluate
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "action": "document:read",
+  "resource": { "type": "document", "id": "d2", "attributes": { "area": "A" } },
+  "subjectAttributes": { "area": "A" }
+}
+
+### EXPECTED  200 OK  →  allowed: true
+
+
+### A3) DENY — default deny (nothing matches)
+POST {{host}}/v1/evaluate
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "action": "document:read",
+  "resource": { "type": "document", "id": "d4", "attributes": { "assignees": ["someone-else"], "area": "B" } },
+  "subjectAttributes": { "area": "A" }
+}
+
+### EXPECTED  200 OK  →  allowed: false, policyVersion: "2"
+
+
+### A4) DELEGATED query — explicit "subject" (caller needs the delegation marker)
+POST {{host}}/v1/evaluate
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "action": "document:read",
+  "resource": { "type": "document", "id": "d5" },
+  "subject": "user-x"
+}
+
+### EXPECTED  200 OK if the caller carries the delegation marker (decision for user-x)
+###           403 FORBIDDEN (problem+json) if it does not (ADR-013 §5)
+
+
+### A5) 400 — resource.type blank (validation error, problem+json)
+POST {{host}}/v1/evaluate
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "action": "document:read",
+  "resource": { "id": "d1" }
+}
+
+### EXPECTED  400  code: "BAD_REQUEST" / INVALID_REQUEST → "resource.type must not be blank."
+
+
+### A6) DENY (not 500) — runtime type mismatch on an ordering operator (ADR-023)
+### If the active policy has e.g.  GT subject.attr.clearance vs 5,  and clearance
+### arrives as a non-number, the comparison does NOT hold → deny. Never a 500.
+POST {{host}}/v1/evaluate
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "action": "document:read",
+  "resource": { "type": "document", "id": "d6" },
+  "subjectAttributes": { "clearance": "high" }
+}
+
+### EXPECTED  200 OK  →  allowed: false   (incomparable operand → condition false)
+
+
+### ============================================================================
+### B) POST /v1/evaluate/batch  — batch → { decisions: [Decision, …] }
+### ============================================================================
+### REQUEST BODY (BatchEvaluationRequest):  { "requests": [ EvaluationRequest, … ] }
+### RESPONSE (BatchEvaluationResult):        { "decisions": [ Decision, … ] }
+###   Results are in the SAME ORDER as the input requests.
+###   Per-item resource-validation errors come back as DENY decisions, NOT 400.
+###   A delegation violation on ANY item fails the WHOLE batch with 403.
+
+POST {{host}}/v1/evaluate/batch
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "requests": [
+    { "action": "document:read",
+      "resource": { "type": "document", "id": "d1", "attributes": { "assignees": ["test-user"] } } },
+    { "action": "document:read",
+      "resource": { "type": "document", "id": "d4", "attributes": { "area": "B" } },
+      "subjectAttributes": { "area": "A" } },
+    { "action": "document:read",
+      "resource": { "type": "document", "id": "d2", "attributes": { "area": "A" } },
+      "subjectAttributes": { "area": "A" } }
+  ]
+}
+
+### EXPECTED  200 OK
+### {
+###   "decisions": [
+###     { "allowed": true,  "reason": "…assigned-access…", "decisionId": "…", "policyVersion": "2", "obligations": [] },
+###     { "allowed": false, "reason": "…default deny…",     "decisionId": "…", "policyVersion": "2", "obligations": [] },
+###     { "allowed": true,  "reason": "…area-scope…",       "decisionId": "…", "policyVersion": "2", "obligations": [] }
+###   ]
+### }
+### (decisions[i] corresponds to requests[i])
+
+
+### ============================================================================
+### C) GET /v1/permissions  — cacheable flat permission list for subject + ?app
+### ============================================================================
+### QUERY PARAMS:
+###   app  (REQUIRED)  application context; 400 if missing/blank
+### Subject is resolved from the JWT (self only; no delegated form yet — that
+### transport is deferred to its own ADR, see ADR-013 / §4 open decisions).
+###
+### RESPONSE (PermissionsResponse):
+###   { subject, app, permissions: [ "resource:verb", … ], policyVersion, evaluatedAt }
+### Safe to cache per (subject + app + policyVersion); policyVersion changes when
+### policies change → use it as a cache key / invalidation signal.
+###
+### NOTE: today permittedActions returns an empty list (option A); the bulk
+### permission-listing mechanism is a separate future ADR. The CONTRACT below is
+### stable even though the list is currently empty.
+
+### C1) permissions for app "records"
+GET {{host}}/v1/permissions?app=records
+Authorization: {{auth}}
+
+### EXPECTED  200 OK
+### {
+###   "subject": "<sub-from-jwt>",
+###   "app": "records",
+###   "permissions": [],                 ← currently empty (option A); contract stable
+###   "policyVersion": "2",
+###   "evaluatedAt": "2026-07-10T…Z"
+### }
+
+
+### C2) 400 — missing 'app' query parameter
+GET {{host}}/v1/permissions
+Authorization: {{auth}}
+
+### EXPECTED  400  (problem+json)  →  "'app' query parameter must not be blank."
+
+
+### C3) 401 — no token (unauthenticated)
+GET {{host}}/v1/permissions?app=records
+
+### EXPECTED  401  (OIDC challenge, no problem+json body)
+
+
+### ============================================================================
+### FIELD REFERENCE
+### ----------------------------------------------------------------------------
+### EvaluationRequest { action, resource: ResourceRef, context?, subjectAttributes?, subject? }
+### ResourceRef       { type, id?, attributes?: {…} }
+### Decision          { allowed, reason, decisionId, policyVersion, obligations: [Obligation] }
+### BatchEvaluationRequest { requests: [EvaluationRequest] }
+### BatchEvaluationResult  { decisions: [Decision] }         ← same order as requests
+### PermissionsResponse    { subject, app, permissions: [String], policyVersion, evaluatedAt }
+###
+### Attribute paths in conditions: subject.id | subject.attr.* | resource.type |
+###   resource.id | resource.attr.* | context.*
+### ============================================================================
