@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.28](https://github.com/ricardoqmd/service-policy/compare/v0.1.27...v0.1.28) (2026-07-12)
+
+
+### Documentation
+
+* replace stale policies-demo.http with runnable contract walkthroughs ([#107](https://github.com/ricardoqmd/service-policy/issues/107)) ([bcb1555](https://github.com/ricardoqmd/service-policy/commit/bcb155577e3c05a1ea3b90714c6de39d6d3dc9ac))
+
 ## [0.1.27](https://github.com/ricardoqmd/service-policy/compare/v0.1.26...v0.1.27) (2026-07-10)
 
 
