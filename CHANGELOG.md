@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/ricardoqmd/service-policy/compare/v0.2.1...v0.2.2) (2026-07-13)
+
+
+### Features
+
+* list policies in all lifecycle states with a status filter ([#121](https://github.com/ricardoqmd/service-policy/issues/121)) ([d5accf7](https://github.com/ricardoqmd/service-policy/commit/d5accf76867bfb36772e84070f0c7091d9ed0198))
+
 ## [0.2.1](https://github.com/ricardoqmd/service-policy/compare/v0.2.0...v0.2.1) (2026-07-13)
 
 
