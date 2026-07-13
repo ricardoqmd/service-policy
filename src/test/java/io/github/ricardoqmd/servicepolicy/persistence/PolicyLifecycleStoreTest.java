@@ -19,6 +19,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.AttributeRef;
 import io.github.ricardoqmd.servicepolicy.domain.policy.CombiningAlgorithm;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Comparison;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Effect;
+import io.github.ricardoqmd.servicepolicy.domain.policy.HeadStatus;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
@@ -55,9 +56,9 @@ class PolicyLifecycleStoreTest {
         seedHead("p-b", 2, 3, policy("p-b", 2));
         seedHead("p-a", 1, 1, policy("p-a", 1));
 
-        assertEquals(2, store.countActiveHeads());
+        assertEquals(2, store.countHeads(null, HeadStatus.ACTIVE));
 
-        List<PolicyHead> firstPage = store.findActiveHeads(0, 1);
+        List<PolicyHead> firstPage = store.findHeads(null, HeadStatus.ACTIVE, 0, 1);
         assertEquals(1, firstPage.size());
         assertEquals("p-a", firstPage.get(0).policyId()); // ascending by policyId
         assertEquals(1, firstPage.get(0).activeVersion());
@@ -65,7 +66,7 @@ class PolicyLifecycleStoreTest {
         assertNotNull(firstPage.get(0).activeContent());
         assertEquals("u-1", firstPage.get(0).audit().createdBy());
 
-        List<PolicyHead> secondPage = store.findActiveHeads(1, 1);
+        List<PolicyHead> secondPage = store.findHeads(null, HeadStatus.ACTIVE, 1, 1);
         assertEquals(1, secondPage.size());
         assertEquals("p-b", secondPage.get(0).policyId());
     }
@@ -74,13 +75,40 @@ class PolicyLifecycleStoreTest {
     void excludesInactiveHeadsFromActiveListButFindHeadReturnsThem() {
         seedHead("draft", null, 0, null);
 
-        assertEquals(0, store.countActiveHeads());
-        assertTrue(store.findActiveHeads(0, 20).isEmpty());
+        assertEquals(0, store.countHeads(null, HeadStatus.ACTIVE));
+        assertTrue(store.findHeads(null, HeadStatus.ACTIVE, 0, 20).isEmpty());
 
         Optional<PolicyHead> draft = store.findHead("draft");
         assertTrue(draft.isPresent());
         assertNull(draft.get().activeVersion());
         assertNull(draft.get().activeContent());
+    }
+
+    /** ADR-025: the listing store sees every lifecycle state; 'all' applies no state filter. */
+    @Test
+    void findsHeadsInEveryLifecycleStateWhenStatusIsAll() {
+        seedHead("p-active", 1, 1, policy("p-active", 1));
+        seedHead("p-draft", null, 0, null);
+
+        assertEquals(2, store.countHeads(null, HeadStatus.ALL));
+
+        List<PolicyHead> heads = store.findHeads(null, HeadStatus.ALL, 0, 20);
+        assertEquals(
+                List.of("p-active", "p-draft"),
+                heads.stream().map(PolicyHead::policyId).toList());
+        assertNull(heads.get(1).activeVersion());
+    }
+
+    @Test
+    void findsOnlyInactiveHeadsWhenStatusIsInactive() {
+        seedHead("p-active", 1, 1, policy("p-active", 1));
+        seedHead("p-draft", null, 0, null);
+
+        assertEquals(1, store.countHeads(null, HeadStatus.INACTIVE));
+
+        List<PolicyHead> heads = store.findHeads(null, HeadStatus.INACTIVE, 0, 20);
+        assertEquals(1, heads.size());
+        assertEquals("p-draft", heads.get(0).policyId());
     }
 
     @Test

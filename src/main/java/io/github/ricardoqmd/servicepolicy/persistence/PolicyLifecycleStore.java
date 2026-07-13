@@ -15,6 +15,7 @@ import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.UpdateResult;
 
+import io.github.ricardoqmd.servicepolicy.domain.policy.HeadStatus;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.problem.PolicyAlreadyExistsException;
 import io.github.ricardoqmd.servicepolicy.problem.PolicyNotFoundException;
@@ -48,34 +49,19 @@ public class PolicyLifecycleStore {
         this.versionRepository = versionRepository;
     }
 
-    /** @return active policy heads for the requested zero-based page (all apps). */
-    public List<PolicyHead> findActiveHeads(int pageIndex, int size) {
-        return headRepository.findActiveHeads(pageIndex, size).stream()
+    /**
+     * @return policy heads for the requested zero-based page, scoped to {@code app} when non-null
+     *     (ADR-024) and to the lifecycle {@code status} (ADR-025); the filters compose with AND.
+     */
+    public List<PolicyHead> findHeads(String app, HeadStatus status, int pageIndex, int size) {
+        return headRepository.findHeads(app, status, pageIndex, size).stream()
                 .map(mapper::head)
                 .toList();
     }
 
-    /** @return active policy heads filtered by app for the requested zero-based page. */
-    public List<PolicyHead> findActiveHeads(String app, int pageIndex, int size) {
-        if (app == null) {
-            return findActiveHeads(pageIndex, size);
-        }
-        return headRepository.findActiveHeadsByApp(app, pageIndex, size).stream()
-                .map(mapper::head)
-                .toList();
-    }
-
-    /** @return the number of active policy heads (all apps). */
-    public long countActiveHeads() {
-        return headRepository.countActiveHeads();
-    }
-
-    /** @return the number of active policy heads for the given app (or all apps when {@code app} is null). */
-    public long countActiveHeads(String app) {
-        if (app == null) {
-            return countActiveHeads();
-        }
-        return headRepository.countActiveHeadsByApp(app);
+    /** @return the number of policy heads matching the same app/status combination as {@link #findHeads}. */
+    public long countHeads(String app, HeadStatus status) {
+        return headRepository.countHeads(app, status);
     }
 
     /** @return the head for the given policyId, if present. */
