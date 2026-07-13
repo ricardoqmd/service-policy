@@ -7,31 +7,32 @@ both are kept for the audit trail.
 
 **Status legend:** Proposed · Accepted · Superseded · Deprecated
 
-|                       #                        |                                         Decision                                         |  Status  |
-|------------------------------------------------|------------------------------------------------------------------------------------------|----------|
-| [001](001-dedicated-abac-pdp.md)               | Dedicated ABAC Policy Decision Point                                                     | Accepted |
-| [002](002-quarkus-java21.md)                   | Quarkus 3.x LTS + Java 21                                                                | Accepted |
-| [003](003-authentication-oidc-jwt-jwks.md)     | Authentication input — OIDC/JWT validated via JWKS (IdP-agnostic; Keycloak as reference) | Accepted |
-| [004](004-pep-contract-surface-and-stub.md)    | PEP contract surface and stub evaluator (Phase 1.5)                                      | Accepted |
-| [005](005-attribute-id-keying.md)              | Policy attributes key on stable id/code, never display text                              | Accepted |
-| [006](006-tenancy-model.md)                    | Tenancy model — tenant = institution = realm; silo deployment; rules as config           | Accepted |
-| [007](007-sonarqube-cloud-public-repo.md)      | SonarQube Cloud for the public repository                                                | Accepted |
-| [008](008-mvp-policy-domain.md)                | MVP policy domain                                                                        | Accepted |
-| [009](009-test-coverage-tooling.md)            | Test coverage tooling and CDI scope convention                                           | Accepted |
-| [010](010-subject-attribute-provenance.md)     | Subject attribute provenance: caller-asserted, behind a port                             | Accepted |
-| [011](011-null-operand-semantics.md)           | Null operand semantics in condition comparisons                                          | Accepted |
-| [012](012-policy-authoring-contract.md)        | Policy authoring contract (`POST /v1/policies`)                                          | Accepted |
-| [013](013-pdp-endpoint-authorization.md)       | PDP endpoint authorization and subject provenance                                        | Accepted |
-| [014](014-policy-lifecycle-crud-contract.md)   | Policy lifecycle and CRUD contract (`/v1/policies`)                                      | Accepted |
-| [015](015-openapi-not-versioned.md)            | Do not version the generated OpenAPI specification                                       | Accepted |
-| [016](016-head-pointer-activation.md)          | Head-pointer activation model                                                            | Accepted |
-| [017](017-rest-response-contract.md)           | REST response contract — collection envelope, pagination, error shape                    | Accepted |
-| [018](018-error-response-contract.md)          | Error response contract — RFC 9457 problem+json, conditional writes (If-Match/ETag)      | Accepted |
-| [019](019-transaction-free-write-atomicity.md) | Transaction-free write atomicity — commit-point + self-healing                           | Accepted |
-| [020](020-activation-write-path.md)            | Activation write-path — explicit-version activate + deactivate, conditional single-doc   | Accepted |
-| [021](021-evaluator-cutover-head-pointer.md)   | Evaluator cutover to the head-pointer model; legacy single-collection path removed       | Accepted |
-| [022](022-quarkus-jacoco-coverage.md)          | Adopt quarkus-jacoco for coverage instrumentation (revisits ADR-009)                     | Accepted |
-| [023](023-operand-type-validation.md)          | Operand type validation — reject literal mistyping at authoring, deny at evaluation      | Accepted |
+|                       #                        |                                          Decision                                          |  Status  |
+|------------------------------------------------|--------------------------------------------------------------------------------------------|----------|
+| [001](001-dedicated-abac-pdp.md)               | Dedicated ABAC Policy Decision Point                                                       | Accepted |
+| [002](002-quarkus-java21.md)                   | Quarkus 3.x LTS + Java 21                                                                  | Accepted |
+| [003](003-authentication-oidc-jwt-jwks.md)     | Authentication input — OIDC/JWT validated via JWKS (IdP-agnostic; Keycloak as reference)   | Accepted |
+| [004](004-pep-contract-surface-and-stub.md)    | PEP contract surface and stub evaluator (Phase 1.5)                                        | Accepted |
+| [005](005-attribute-id-keying.md)              | Policy attributes key on stable id/code, never display text                                | Accepted |
+| [006](006-tenancy-model.md)                    | Tenancy model — tenant = institution = realm; silo deployment; rules as config             | Accepted |
+| [007](007-sonarqube-cloud-public-repo.md)      | SonarQube Cloud for the public repository                                                  | Accepted |
+| [008](008-mvp-policy-domain.md)                | MVP policy domain                                                                          | Accepted |
+| [009](009-test-coverage-tooling.md)            | Test coverage tooling and CDI scope convention                                             | Accepted |
+| [010](010-subject-attribute-provenance.md)     | Subject attribute provenance: caller-asserted, behind a port                               | Accepted |
+| [011](011-null-operand-semantics.md)           | Null operand semantics in condition comparisons                                            | Accepted |
+| [012](012-policy-authoring-contract.md)        | Policy authoring contract (`POST /v1/policies`)                                            | Accepted |
+| [013](013-pdp-endpoint-authorization.md)       | PDP endpoint authorization and subject provenance                                          | Accepted |
+| [014](014-policy-lifecycle-crud-contract.md)   | Policy lifecycle and CRUD contract (`/v1/policies`)                                        | Accepted |
+| [015](015-openapi-not-versioned.md)            | Do not version the generated OpenAPI specification                                         | Accepted |
+| [016](016-head-pointer-activation.md)          | Head-pointer activation model                                                              | Accepted |
+| [017](017-rest-response-contract.md)           | REST response contract — collection envelope, pagination, error shape                      | Accepted |
+| [018](018-error-response-contract.md)          | Error response contract — RFC 9457 problem+json, conditional writes (If-Match/ETag)        | Accepted |
+| [019](019-transaction-free-write-atomicity.md) | Transaction-free write atomicity — commit-point + self-healing                             | Accepted |
+| [020](020-activation-write-path.md)            | Activation write-path — explicit-version activate + deactivate, conditional single-doc     | Accepted |
+| [021](021-evaluator-cutover-head-pointer.md)   | Evaluator cutover to the head-pointer model; legacy single-collection path removed         | Accepted |
+| [022](022-quarkus-jacoco-coverage.md)          | Adopt quarkus-jacoco for coverage instrumentation (revisits ADR-009)                       | Accepted |
+| [023](023-operand-type-validation.md)          | Operand type validation — reject literal mistyping at authoring, deny at evaluation        | Accepted |
+| [024](024-application-scoping.md)              | Application scoping — `app` as a first-class policy dimension (policy, request, selection) | Accepted |
 
 ## Relationships
 
@@ -57,6 +58,13 @@ both are kept for the audit trail.
 - **ADR-004** defined the Phase 1.5 PEP contract surface with a stub evaluator;
   the persistent evaluator is covered by ADR-008 and ADR-010.
 - **ADR-017** sets the REST response contract for the read/list surface.
+- **ADR-024 refines ADR-006 and ADR-008.** ADR-006 scopes tenancy at the institution
+  level (one silo per institution); ADR-024 adds the intra-tenant dimension: `app` is
+  a required policy field, carried on the evaluation request, and part of policy
+  selection `(app, resourceType, verb)`. Cross-application isolation becomes an engine
+  guarantee rather than a naming convention, and `resourceType` becomes a per-app
+  namespace. Per-app administrative scope stays outside the engine as a subject
+  attribute (ADR-010), evaluated as a meta-policy.
 
 ## Notes
 
