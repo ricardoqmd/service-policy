@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/ricardoqmd/service-policy/compare/v0.2.2...v0.2.3) (2026-07-13)
+
+
+### Documentation
+
+* update http examples for application scoping and status filter ([#124](https://github.com/ricardoqmd/service-policy/issues/124)) ([f0d88cc](https://github.com/ricardoqmd/service-policy/commit/f0d88ccf43161c1f9045981544a2189db2f232ac))
+
 ## [0.2.2](https://github.com/ricardoqmd/service-policy/compare/v0.2.1...v0.2.2) (2026-07-13)
 
 
