@@ -23,6 +23,7 @@ class PolicyDocumentMapperTest {
 
     private Policy documentReadAccess() {
         return new Policy(
+                "test-app",
                 "document-read-access",
                 1,
                 "document",
@@ -53,6 +54,7 @@ class PolicyDocumentMapperTest {
     @Test
     void documentShape() {
         Map<String, Object> doc = mapper.toDocument(documentReadAccess());
+        assertEquals("test-app", doc.get("app"));
         assertEquals("document-read-access", doc.get("policyId"));
         assertEquals(1, doc.get("version"));
         assertEquals("document", doc.get("resourceType"));
@@ -60,6 +62,13 @@ class PolicyDocumentMapperTest {
         assertEquals("DENY_OVERRIDES", doc.get("combiningAlgorithm"));
         assertEquals("DENY", doc.get("defaultEffect"));
         assertEquals(2, ((List<?>) doc.get("rules")).size());
+    }
+
+    @Test
+    void missingAppThrows() {
+        Map<String, Object> doc = mapper.toDocument(documentReadAccess());
+        doc.remove("app");
+        assertThrows(PolicyDocumentException.class, () -> mapper.fromDocument(doc));
     }
 
     @Test

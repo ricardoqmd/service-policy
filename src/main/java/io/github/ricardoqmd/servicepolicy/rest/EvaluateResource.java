@@ -53,7 +53,10 @@ public class EvaluateResource {
                     + " delegation marker is absent. Returns 401 if unauthenticated, 400 if"
                     + " 'action' or 'resource.type' is blank.")
     public Response evaluate(EvaluationRequest request) {
-        if (request == null || request.action() == null || request.action().isBlank()) {
+        if (request == null || request.app() == null || request.app().isBlank()) {
+            throw new InvalidRequestException("app must not be blank.");
+        }
+        if (request.action() == null || request.action().isBlank()) {
             throw new InvalidRequestException("action must not be blank.");
         }
         if (request.resource() == null
@@ -71,11 +74,17 @@ public class EvaluateResource {
             summary = "Evaluate a batch of authorization requests",
             description = "Evaluates multiple requests in a single call. Results are returned in the same order"
                     + " as the input requests. Per-item resource-validation errors are returned"
-                    + " as deny decisions (not HTTP 400). A delegation violation on any item"
+                    + " as deny decisions (not HTTP 400). A missing or blank 'app' on any item"
+                    + " fails the entire batch with 400. A delegation violation on any item"
                     + " fails the entire batch with 403. Requires a valid Bearer token.")
     public Response batch(BatchEvaluationRequest batchRequest) {
         List<Decision> decisions = batchRequest.requests().stream()
-                .map(r -> evaluator.evaluate(authContext.resolveEffectiveSubject(r.subject()), r))
+                .map(r -> {
+                    if (r.app() == null || r.app().isBlank()) {
+                        throw new InvalidRequestException("app must not be blank.");
+                    }
+                    return evaluator.evaluate(authContext.resolveEffectiveSubject(r.subject()), r);
+                })
                 .toList();
         return Response.ok(new BatchEvaluationResult(decisions)).build();
     }

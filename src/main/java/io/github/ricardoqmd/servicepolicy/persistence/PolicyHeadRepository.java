@@ -14,6 +14,7 @@ import io.quarkus.panache.common.Sort;
 public class PolicyHeadRepository implements PanacheMongoRepository<PolicyHeadDocument> {
 
     private static final String ACTIVE_HEADS = "{'activeVersion': {$ne: null}}";
+    private static final String ACTIVE_HEADS_BY_APP = "{'activeVersion': {$ne: null}, 'app': ?1}";
 
     /**
      * @return active heads (those with a non-null {@code activeVersion}), ordered by policyId, for
@@ -40,12 +41,24 @@ public class PolicyHeadRepository implements PanacheMongoRepository<PolicyHeadDo
         return count("{'policyId': ?1}", policyId) > 0;
     }
 
+    /** @return active heads filtered by app, ordered by policyId, for the requested zero-based page. */
+    public List<PolicyHeadDocument> findActiveHeadsByApp(String app, int pageIndex, int size) {
+        return find(ACTIVE_HEADS_BY_APP, Sort.ascending("policyId"), app)
+                .page(Page.of(pageIndex, size))
+                .list();
+    }
+
+    /** @return the number of active heads for the given app. */
+    public long countActiveHeadsByApp(String app) {
+        return count(ACTIVE_HEADS_BY_APP, app);
+    }
+
     /**
-     * @return all active heads (non-null {@code activeVersion}) for the given resource type.
+     * @return all active heads (non-null {@code activeVersion}) for the given app and resource type.
      *     Returns the complete set — not paged — because the evaluator needs every candidate.
      */
-    public List<PolicyHeadDocument> findActiveByResourceType(String resourceType) {
-        return find("{'activeVersion': {$ne: null}, 'resourceType': ?1}", resourceType)
+    public List<PolicyHeadDocument> findActiveByAppAndResourceType(String app, String resourceType) {
+        return find("{'activeVersion': {$ne: null}, 'app': ?1, 'resourceType': ?2}", app, resourceType)
                 .list();
     }
 }

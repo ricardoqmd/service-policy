@@ -24,7 +24,7 @@ class ConditionEvaluatorTest {
         Subject subject = new Subject("u1", Map.of("role", "reviewer", "area", "A", "level", 5));
         Resource resource = new Resource(
                 "document", "doc-9", Map.of("area", "A", "assignees", List.of("u1", "u7"), "sealed", true));
-        return new AuthorizationRequest(subject, "document:read", resource, Map.of("emergency", false));
+        return new AuthorizationRequest("test-app", subject, "document:read", resource, Map.of("emergency", false));
     }
 
     private static Comparison cmp(Operator op, Operand left, Operand right) {

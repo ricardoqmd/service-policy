@@ -68,7 +68,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cond));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1",
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1",
                 "attributes":{"restricted":["HR","Legal"]}},"subjectAttributes":{"dept":"IT"}}
                 """).body("allowed", equalTo(true));
     }
@@ -81,7 +81,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cond));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1",
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1",
                 "attributes":{"restricted":["HR","Legal"]}},"subjectAttributes":{"dept":"HR"}}
                 """).body("allowed", equalTo(false));
     }
@@ -94,7 +94,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cond));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1",
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1",
                 "attributes":{"restricted":["HR","Legal"]}}}
                 """).body("allowed", equalTo(false));
     }
@@ -107,7 +107,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cond));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"dept":"IT"}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"dept":"IT"}}
                 """).body("allowed", equalTo(false));
     }
 
@@ -119,7 +119,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cond));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1",
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1",
                 "attributes":{"zone":"restricted"}},"subjectAttributes":{"dept":"IT"}}
                 """).body("allowed", equalTo(true));
     }
@@ -134,7 +134,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cond));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1",
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1",
                 "attributes":{"zone":"IT"}},"subjectAttributes":{"dept":"IT"}}
                 """).body("allowed", equalTo(false));
     }
@@ -148,7 +148,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.GTE, attr("subject.attr.clearance"), lit(5))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":5}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":5}}
                 """).body("allowed", equalTo(true));
     }
 
@@ -159,7 +159,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.GTE, attr("subject.attr.clearance"), lit(5))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":4}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":4}}
                 """).body("allowed", equalTo(false));
     }
 
@@ -170,7 +170,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.GTE, attr("subject.attr.clearance"), lit(5))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"}}
                 """).body("allowed", equalTo(false));
     }
 
@@ -183,7 +183,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.LT, attr("subject.attr.clearance"), lit(10))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":5}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":5}}
                 """).body("allowed", equalTo(true));
     }
 
@@ -194,7 +194,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.LT, attr("subject.attr.clearance"), lit(10))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":10}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":10}}
                 """).body("allowed", equalTo(false));
     }
 
@@ -205,7 +205,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.LT, attr("subject.attr.clearance"), lit(10))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"}}
                 """).body("allowed", equalTo(false));
     }
 
@@ -218,7 +218,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.LTE, attr("subject.attr.clearance"), lit(5))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":5}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":5}}
                 """).body("allowed", equalTo(true));
     }
 
@@ -229,7 +229,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.LTE, attr("subject.attr.clearance"), lit(5))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":6}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":6}}
                 """).body("allowed", equalTo(false));
     }
 
@@ -240,7 +240,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.LTE, attr("subject.attr.clearance"), lit(5))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"}}
                 """).body("allowed", equalTo(false));
     }
 
@@ -253,7 +253,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.GT, attr("subject.attr.clearance"), lit(3))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":5}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":5}}
                 """).body("allowed", equalTo(true));
     }
 
@@ -264,7 +264,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.GT, attr("subject.attr.clearance"), lit(3))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":3}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},"subjectAttributes":{"clearance":3}}
                 """).body("allowed", equalTo(false));
     }
 
@@ -275,7 +275,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.GT, attr("subject.attr.clearance"), lit(3))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"}}
                 """).body("allowed", equalTo(false));
     }
 
@@ -289,7 +289,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cond));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1",
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1",
                 "attributes":{"owners":["alice","bob"]}}}
                 """).body("allowed", equalTo(false));
     }
@@ -303,7 +303,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.EQ, attr("resource.type"), lit("doc"))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"}}
                 """).body("allowed", equalTo(true));
     }
 
@@ -314,7 +314,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.EQ, attr("resource.id"), lit("d1"))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"}}
                 """).body("allowed", equalTo(true));
     }
 
@@ -325,7 +325,7 @@ class ConditionOperatorScenariosTest {
         activate(new Rule("r", Effect.PERMIT, cmp(Operator.EQ, attr("context.env"), lit("prod"))));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},"context":{"env":"prod"}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},"context":{"env":"prod"}}
                 """).body("allowed", equalTo(true));
     }
 
@@ -342,13 +342,13 @@ class ConditionOperatorScenariosTest {
 
         // All sub-conditions hold → PERMIT
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},
                 "subjectAttributes":{"role":"reviewer","clearance":5}}
                 """).body("allowed", equalTo(true));
 
         // One sub-condition fails → AND short-circuits to false → default DENY
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},
                 "subjectAttributes":{"role":"reviewer","clearance":1}}
                 """).body("allowed", equalTo(false));
     }
@@ -364,13 +364,13 @@ class ConditionOperatorScenariosTest {
 
         // At least one sub-condition holds → PERMIT
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},
                 "subjectAttributes":{"role":"reviewer"}}
                 """).body("allowed", equalTo(true));
 
         // No sub-condition holds → default DENY
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"},
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"},
                 "subjectAttributes":{"role":"viewer"}}
                 """).body("allowed", equalTo(false));
     }
@@ -382,13 +382,13 @@ class ConditionOperatorScenariosTest {
     void secondPermitPolicyIsIgnoredWhenFirstAlreadyPermitted() {
         // Two policies with defaultEffect=PERMIT, no rules. PolicyEngine iterates both:
         // first → permit (null → assign), second → permit (non-null → skip). Outcome: allowed.
-        activateFull(
-                new Policy("pa", 1, "doc", List.of("*"), CombiningAlgorithm.DENY_OVERRIDES, Effect.PERMIT, List.of()));
-        activateFull(
-                new Policy("pb", 1, "doc", List.of("*"), CombiningAlgorithm.DENY_OVERRIDES, Effect.PERMIT, List.of()));
+        activateFull(new Policy(
+                "test-app", "pa", 1, "doc", List.of("*"), CombiningAlgorithm.DENY_OVERRIDES, Effect.PERMIT, List.of()));
+        activateFull(new Policy(
+                "test-app", "pb", 1, "doc", List.of("*"), CombiningAlgorithm.DENY_OVERRIDES, Effect.PERMIT, List.of()));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"}}
                 """).body("allowed", equalTo(true));
     }
 
@@ -399,6 +399,7 @@ class ConditionOperatorScenariosTest {
     void secondMatchingPermitRuleInPolicyIsIgnored() {
         // Two PERMIT rules that both match; evaluatePolicy stores first and skips second.
         Policy policy = new Policy(
+                "test-app",
                 "two-permits",
                 1,
                 "doc",
@@ -411,7 +412,7 @@ class ConditionOperatorScenariosTest {
         activateFull(policy);
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"}}
                 """).body("allowed", equalTo(true)).body("reason", equalTo("permitted by rule first"));
     }
 
@@ -422,10 +423,17 @@ class ConditionOperatorScenariosTest {
     void actionWithoutColonMatchesVerbDirectly() {
         // verbOf("read") returns "read" (colon < 0 branch: action returned as-is)
         activateFull(new Policy(
-                "verb-policy", 1, "doc", List.of("read"), CombiningAlgorithm.DENY_OVERRIDES, Effect.PERMIT, List.of()));
+                "test-app",
+                "verb-policy",
+                1,
+                "doc",
+                List.of("read"),
+                CombiningAlgorithm.DENY_OVERRIDES,
+                Effect.PERMIT,
+                List.of()));
 
         eval("""
-                {"action":"read","resource":{"type":"doc","id":"d1"}}
+                {"app":"test-app","action":"read","resource":{"type":"doc","id":"d1"}}
                 """).body("allowed", equalTo(true));
     }
 
@@ -436,10 +444,17 @@ class ConditionOperatorScenariosTest {
     void verbBasedPolicyMatchesExactVerb() {
         // actions=["read"]: contains("*")→false, contains("read")→true → policy selected
         activateFull(new Policy(
-                "verb-exact", 1, "doc", List.of("read"), CombiningAlgorithm.DENY_OVERRIDES, Effect.PERMIT, List.of()));
+                "test-app",
+                "verb-exact",
+                1,
+                "doc",
+                List.of("read"),
+                CombiningAlgorithm.DENY_OVERRIDES,
+                Effect.PERMIT,
+                List.of()));
 
         eval("""
-                {"action":"doc:read","resource":{"type":"doc","id":"d1"}}
+                {"app":"test-app","action":"doc:read","resource":{"type":"doc","id":"d1"}}
                 """).body("allowed", equalTo(true));
     }
 
@@ -448,10 +463,17 @@ class ConditionOperatorScenariosTest {
     void verbBasedPolicyDoesNotMatchDifferentVerb() {
         // actions=["read"]: contains("*")→false, contains("write")→false → policy not selected
         activateFull(new Policy(
-                "verb-exact", 1, "doc", List.of("read"), CombiningAlgorithm.DENY_OVERRIDES, Effect.PERMIT, List.of()));
+                "test-app",
+                "verb-exact",
+                1,
+                "doc",
+                List.of("read"),
+                CombiningAlgorithm.DENY_OVERRIDES,
+                Effect.PERMIT,
+                List.of()));
 
         eval("""
-                {"action":"doc:write","resource":{"type":"doc","id":"d1"}}
+                {"app":"test-app","action":"doc:write","resource":{"type":"doc","id":"d1"}}
                 """).body("allowed", equalTo(false)).body("reason", equalTo("no applicable policy"));
     }
 
@@ -459,7 +481,14 @@ class ConditionOperatorScenariosTest {
 
     private void activate(Rule rule) {
         activateFull(new Policy(
-                "policy", 1, "doc", List.of("*"), CombiningAlgorithm.DENY_OVERRIDES, Effect.DENY, List.of(rule)));
+                "test-app",
+                "policy",
+                1,
+                "doc",
+                List.of("*"),
+                CombiningAlgorithm.DENY_OVERRIDES,
+                Effect.DENY,
+                List.of(rule)));
     }
 
     private void activateFull(Policy policy) {

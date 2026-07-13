@@ -20,7 +20,12 @@ public class PolicyReadMapper {
 
     public PolicyHeadSummary headSummary(PolicyHead head) {
         return new PolicyHeadSummary(
-                head.policyId(), head.resourceType(), head.activeVersion(), head.revision(), auditView(head.audit()));
+                head.policyId(),
+                head.app(),
+                head.resourceType(),
+                head.activeVersion(),
+                head.revision(),
+                auditView(head.audit()));
     }
 
     public PolicyHeadView headView(PolicyHead head) {
@@ -28,6 +33,7 @@ public class PolicyReadMapper {
                 head.activeContent() == null ? null : policyMapper.toDocument(head.activeContent());
         return new PolicyHeadView(
                 head.policyId(),
+                head.app(),
                 head.resourceType(),
                 head.activeVersion(),
                 head.revision(),
@@ -38,7 +44,7 @@ public class PolicyReadMapper {
     public PolicyVersionSummary versionSummary(PolicyVersion version) {
         Policy content = version.content();
         return new PolicyVersionSummary(
-                content.id(), content.version(), content.resourceType(), auditView(version.audit()));
+                content.id(), content.app(), content.version(), content.resourceType(), auditView(version.audit()));
     }
 
     public Map<String, Object> versionContent(PolicyVersion version) {

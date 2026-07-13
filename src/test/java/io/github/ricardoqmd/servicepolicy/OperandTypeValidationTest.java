@@ -181,6 +181,7 @@ class OperandTypeValidationTest {
         // Request: clearance attribute arrives as a string "high" — non-numeric.
         // Expected: allowed=false (deny), NOT a 500.
         Policy policy = new Policy(
+                "test-app",
                 "dyn-type-policy",
                 1,
                 "doc",
@@ -197,6 +198,7 @@ class OperandTypeValidationTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "doc:read",
                           "resource": {"type": "doc", "id": "d1"},
                           "subjectAttributes": {"clearance": "high"}
@@ -214,6 +216,7 @@ class OperandTypeValidationTest {
     void evaluateWithNumericAttributeOnGtPermits() {
         // Same policy — when clearance is a real number above the threshold, it should permit.
         Policy policy = new Policy(
+                "test-app",
                 "dyn-num-policy",
                 1,
                 "doc",
@@ -230,6 +233,7 @@ class OperandTypeValidationTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "doc:read",
                           "resource": {"type": "doc", "id": "d1"},
                           "subjectAttributes": {"clearance": 5}
@@ -247,6 +251,7 @@ class OperandTypeValidationTest {
     private static String policyBody(String op, String rightValue) {
         return """
                 {
+                  "app": "test-app",
                   "policyId": "type-val-policy",
                   "version": 1,
                   "resourceType": "doc",
@@ -267,6 +272,7 @@ class OperandTypeValidationTest {
     private static String policyBodyWithRefRight(String op) {
         return """
                 {
+                  "app": "test-app",
                   "policyId": "type-val-policy",
                   "version": 1,
                   "resourceType": "doc",
@@ -288,6 +294,7 @@ class OperandTypeValidationTest {
         return """
                 {
                   "content": {
+                    "app": "test-app",
                     "policyId": "type-val-policy",
                     "version": 2,
                     "resourceType": "doc",

@@ -28,6 +28,7 @@ class EvaluationResourceTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d1"}
                         }
@@ -49,6 +50,7 @@ class EvaluationResourceTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d1", "attributes": {"area": "A"}},
                           "subjectAttributes": {"area": "A"}
@@ -115,6 +117,7 @@ class EvaluationResourceTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d1"},
                           "subject": "test-user"
@@ -133,6 +136,7 @@ class EvaluationResourceTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d1"},
                           "subject": "other-user"
@@ -153,6 +157,7 @@ class EvaluationResourceTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d1"},
                           "subject": "other-user"
@@ -173,10 +178,12 @@ class EvaluationResourceTest {
                         {
                           "requests": [
                             {
+                              "app": "test-app",
                               "action": "document:read",
                               "resource": {"type": "document", "id": "d1"}
                             },
                             {
+                              "app": "test-app",
                               "action": "document:read"
                             }
                           ]
@@ -236,6 +243,32 @@ class EvaluationResourceTest {
                         """)
                 .when()
                 .post("/v1/evaluate")
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    @Test
+    @TestSecurity(user = "test-user")
+    void batchWithMissingAppReturns400() {
+        given().contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "requests": [
+                            {
+                              "app": "test-app",
+                              "action": "document:read",
+                              "resource": {"type": "document", "id": "d1"}
+                            },
+                            {
+                              "action": "document:read",
+                              "resource": {"type": "document", "id": "d2"}
+                            }
+                          ]
+                        }
+                        """)
+                .when()
+                .post("/v1/evaluate/batch")
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("BAD_REQUEST"));

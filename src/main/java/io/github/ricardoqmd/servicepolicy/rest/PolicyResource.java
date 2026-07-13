@@ -165,16 +165,18 @@ public class PolicyResource {
     @GET
     @Operation(
             summary = "List active policies",
-            description = "Returns active policy heads (ADR-016) as a paginated collection (ADR-017).")
+            description = "Returns active policy heads (ADR-016) as a paginated collection (ADR-017)."
+                    + " Use '?app=' to filter by application scope (ADR-024).")
     public Response list(
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("size") @DefaultValue("20") int size,
-            @QueryParam("view") String view) {
+            @QueryParam("view") String view,
+            @QueryParam("app") String app) {
         requireAdmin();
         validatePaging(page, size);
 
-        long total = lifecycleStore.countActiveHeads();
-        List<PolicyHead> heads = lifecycleStore.findActiveHeads(page - 1, size);
+        long total = lifecycleStore.countActiveHeads(app);
+        List<PolicyHead> heads = lifecycleStore.findActiveHeads(app, page - 1, size);
         Paginated.Pagination pagination = Paginated.Pagination.of(page, size, total);
 
         if (isFull(view)) {

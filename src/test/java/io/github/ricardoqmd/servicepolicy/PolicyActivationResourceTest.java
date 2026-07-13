@@ -30,6 +30,7 @@ class PolicyActivationResourceTest {
 
     private static final String VALID_POLICY = """
             {
+              "app": "test-app",
               "policyId": "p-act",
               "version": 1,
               "resourceType": "document",

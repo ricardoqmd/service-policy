@@ -208,6 +208,7 @@ class PolicyReadResourceTest {
 
     private Policy policy(String id, int version) {
         return new Policy(
+                "test-app",
                 id,
                 version,
                 "document",
@@ -232,6 +233,7 @@ class PolicyReadResourceTest {
     private void seedHead(String policyId, Integer activeVersion, long revision, Policy activeContent) {
         PolicyHeadDocument doc = new PolicyHeadDocument();
         doc.policyId = policyId;
+        doc.app = "test-app";
         doc.resourceType = "document";
         doc.activeVersion = activeVersion;
         doc.revision = revision;

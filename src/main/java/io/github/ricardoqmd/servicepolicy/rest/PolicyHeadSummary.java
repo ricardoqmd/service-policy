@@ -8,4 +8,4 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
  */
 @Schema(description = "Policy head summary (no content).")
 public record PolicyHeadSummary(
-        String policyId, String resourceType, Integer activeVersion, long revision, AuditView audit) {}
+        String policyId, String app, String resourceType, Integer activeVersion, long revision, AuditView audit) {}

@@ -23,6 +23,7 @@ class PolicyEngineTest {
     /** document-read-access: rules 1-3 from ADR-008, deny-overrides, default deny. */
     private Policy documentReadAccess() {
         return new Policy(
+                "test-app",
                 "document-read-access",
                 1,
                 "document",
@@ -56,7 +57,7 @@ class PolicyEngineTest {
         Subject subject = new Subject(subjectId, Map.of("area", subjectArea));
         Resource resource =
                 new Resource("document", "doc-1", Map.of("area", resArea, "assignees", assignees, "sealed", sealed));
-        return new AuthorizationRequest(subject, "document:read", resource, Map.of());
+        return new AuthorizationRequest("test-app", subject, "document:read", resource, Map.of());
     }
 
     private AuthorizationDecision evaluate(AuthorizationRequest request) {
@@ -107,7 +108,7 @@ class PolicyEngineTest {
     void noApplicablePolicyForUnknownType() {
         Subject subject = new Subject("u1", Map.of());
         Resource resource = new Resource("folder", "f-1", Map.of());
-        AuthorizationRequest request = new AuthorizationRequest(subject, "folder:read", resource, Map.of());
+        AuthorizationRequest request = new AuthorizationRequest("test-app", subject, "folder:read", resource, Map.of());
 
         List<Policy> applicable = selector.select(List.of(documentReadAccess()), request);
         assertTrue(applicable.isEmpty());
@@ -127,7 +128,14 @@ class PolicyEngineTest {
     @Test
     void wildcardActionApplies() {
         Policy wildcard = new Policy(
-                "any-document", 1, "document", List.of("*"), CombiningAlgorithm.DENY_OVERRIDES, Effect.DENY, List.of());
+                "test-app",
+                "any-document",
+                1,
+                "document",
+                List.of("*"),
+                CombiningAlgorithm.DENY_OVERRIDES,
+                Effect.DENY,
+                List.of());
         List<Policy> applicable = selector.select(List.of(wildcard), read0("document:delete"));
         assertEquals(1, applicable.size());
     }
@@ -137,6 +145,7 @@ class PolicyEngineTest {
     @Test
     void denyPolicyOverridesPermitPolicy() {
         Policy permitAll = new Policy(
+                "test-app",
                 "permit-all",
                 1,
                 "document",
@@ -155,6 +164,7 @@ class PolicyEngineTest {
     @Test
     void defaultPermitPolicyAllowsWhenNoRuleMatches() {
         Policy permitByDefault = new Policy(
+                "test-app",
                 "open-document",
                 1,
                 "document",
@@ -171,6 +181,6 @@ class PolicyEngineTest {
         Subject subject = new Subject("u1", Map.of("area", "A"));
         Resource resource =
                 new Resource("document", "doc-1", Map.of("area", "A", "assignees", List.of("u1"), "sealed", false));
-        return new AuthorizationRequest(subject, action, resource, Map.of());
+        return new AuthorizationRequest("test-app", subject, action, resource, Map.of());
     }
 }

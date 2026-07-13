@@ -20,6 +20,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
  */
 public class PolicyDocumentMapper {
 
+    private static final String APP = "app";
     private static final String POLICY_ID = "policyId";
     private static final String VERSION = "version";
     private static final String RESOURCE_TYPE = "resourceType";
@@ -48,6 +49,7 @@ public class PolicyDocumentMapper {
         }
 
         Map<String, Object> doc = new LinkedHashMap<>();
+        doc.put(APP, policy.app());
         doc.put(POLICY_ID, policy.id());
         doc.put(VERSION, policy.version());
         doc.put(RESOURCE_TYPE, policy.resourceType());
@@ -59,7 +61,12 @@ public class PolicyDocumentMapper {
     }
 
     public Policy fromDocument(Map<String, Object> doc) {
+        String app = requireString(doc, APP);
+        if (app.isBlank()) {
+            throw new PolicyDocumentException("'" + APP + "' must not be blank");
+        }
         return new Policy(
+                app,
                 requireString(doc, POLICY_ID),
                 requireInt(doc, VERSION),
                 requireString(doc, RESOURCE_TYPE),

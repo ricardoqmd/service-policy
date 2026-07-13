@@ -18,7 +18,10 @@ public final class PolicySelector {
     public List<Policy> select(List<Policy> policies, AuthorizationRequest request) {
         String verb = verbOf(request.action());
         String resourceType = request.resource().type();
-        return policies.stream().filter(p -> p.appliesTo(resourceType, verb)).toList();
+        String app = request.app();
+        return policies.stream()
+                .filter(p -> p.appliesTo(app, resourceType, verb))
+                .toList();
     }
 
     /** Extracts the verb from an action in {@code type:verb} format. */

@@ -22,6 +22,7 @@ public class PolicyHeadDocument {
 
     public ObjectId id;
     public String policyId;
+    public String app;
     public String resourceType;
     public Integer activeVersion; // null when the policy has no active version yet
     public Document activeContent; // null when activeVersion is null

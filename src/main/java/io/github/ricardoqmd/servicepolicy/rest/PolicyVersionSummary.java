@@ -8,4 +8,4 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
  * {@code GET /v1/policies/{id}/versions/{version}}.
  */
 @Schema(description = "Policy version summary (no content).")
-public record PolicyVersionSummary(String policyId, int version, String resourceType, AuditView audit) {}
+public record PolicyVersionSummary(String policyId, String app, int version, String resourceType, AuditView audit) {}

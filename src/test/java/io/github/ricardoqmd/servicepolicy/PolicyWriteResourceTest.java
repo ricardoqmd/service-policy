@@ -29,6 +29,7 @@ class PolicyWriteResourceTest {
 
     private static final String VALID_POLICY = """
             {
+              "app": "test-app",
               "policyId": "p-write",
               "version": 1,
               "resourceType": "document",
@@ -48,6 +49,7 @@ class PolicyWriteResourceTest {
     private static final String VALID_CONTENT_BODY = """
             {
               "content": {
+                "app": "test-app",
                 "policyId": "p-write",
                 "version": 2,
                 "resourceType": "document",
@@ -129,6 +131,7 @@ class PolicyWriteResourceTest {
     void createSelfHealsOrphanHead() {
         PolicyHeadDocument orphan = new PolicyHeadDocument();
         orphan.policyId = "p-write";
+        orphan.app = "test-app";
         orphan.resourceType = "document";
         orphan.activeVersion = null;
         orphan.activeContent = null;
@@ -289,6 +292,7 @@ class PolicyWriteResourceTest {
                 .body("""
                         {
                           "content": {
+                            "app": "test-app",
                             "policyId": "p-write",
                             "version": 2,
                             "resourceType": "document",
