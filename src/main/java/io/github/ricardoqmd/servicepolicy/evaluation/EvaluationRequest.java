@@ -16,6 +16,7 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
  * bag sibling to {@code context}. An absent bag means the subject has no asserted attributes
  * (less privilege), not an error.
  *
+ * @param app               Application scope for this request (ADR-024); required. Selects which policies are candidates.
  * @param action            Action to authorize in {@code resource:verb} format (e.g. {@code document:read}).
  * @param resource          Target resource being accessed.
  * @param context           Optional runtime context attributes (e.g. {@code {"emergency": true}}).
@@ -25,6 +26,9 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
  */
 @Schema(description = "Authorization evaluation request from a PEP.")
 public record EvaluationRequest(
+        @Schema(required = true, description = "Application scope for this request (ADR-024), e.g. 'my-app'.")
+        String app,
+
         @Schema(required = true, description = "Action in 'resource:verb' format, e.g. 'document:read'.")
         String action,
 

@@ -9,6 +9,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
  */
 public record PolicyHead(
         String policyId,
+        String app,
         String resourceType,
         Integer activeVersion,
         long revision,

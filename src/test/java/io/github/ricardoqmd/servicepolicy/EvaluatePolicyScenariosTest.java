@@ -71,6 +71,7 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d1", "attributes": {"assignees": ["test-user"]}}
                         }
@@ -91,6 +92,7 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d2", "attributes": {"area": "A"}},
                           "subjectAttributes": {"area": "A"}
@@ -110,6 +112,7 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "document:read",
                           "resource": {
                             "type": "document", "id": "d3",
@@ -131,6 +134,7 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "document:read",
                           "resource": {
                             "type": "document", "id": "d4",
@@ -153,6 +157,7 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d5", "attributes": {"area": "A"}}
                         }
@@ -179,6 +184,7 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d6", "attributes": {"assignees": ["test-user"]}}
                         }
@@ -205,6 +211,7 @@ class EvaluatePolicyScenariosTest {
 
         String body = """
                 {
+                  "app": "test-app",
                   "action": "document:read",
                   "resource": {"type": "document", "id": "d-cycle",
                                "attributes": {"assignees": ["admin-user"]}}
@@ -258,6 +265,7 @@ class EvaluatePolicyScenariosTest {
                 Effect.DENY,
                 new Comparison(Operator.EQ, new AttributeRef("resource.attr.sealed"), new Literal(true)));
         return new Policy(
+                "test-app",
                 "doc-access",
                 1,
                 "document",

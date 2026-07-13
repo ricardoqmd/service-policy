@@ -24,6 +24,7 @@ class PolicyResourceTest {
 
     private static final String DOC_ACCESS_POLICY = """
             {
+              "app": "test-app",
               "policyId": "doc-access",
               "version": 1,
               "resourceType": "document",
@@ -113,6 +114,7 @@ class PolicyResourceTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
+                          "app": "test-app",
                           "policyId": "bad",
                           "version": 1,
                           "resourceType": "document",

@@ -12,6 +12,7 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
 @Schema(description = "Full policy head (with active content).")
 public record PolicyHeadView(
         String policyId,
+        String app,
         String resourceType,
         Integer activeVersion,
         long revision,

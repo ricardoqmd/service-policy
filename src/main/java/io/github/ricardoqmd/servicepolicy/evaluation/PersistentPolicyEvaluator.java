@@ -56,8 +56,8 @@ public class PersistentPolicyEvaluator implements PolicyEvaluator {
         }
 
         AuthorizationRequest authzRequest = toAuthorizationRequest(subject, request);
-        List<Policy> candidates =
-                lifecycleStore.activePoliciesFor(authzRequest.resource().type());
+        List<Policy> candidates = lifecycleStore.activePoliciesFor(
+                request.app(), authzRequest.resource().type());
         List<Policy> applicable = selector.select(candidates, authzRequest);
         AuthorizationDecision decision = engine.evaluate(applicable, authzRequest);
 
@@ -88,6 +88,6 @@ public class PersistentPolicyEvaluator implements PolicyEvaluator {
                 request.resource().type(),
                 request.resource().id(),
                 request.resource().attributes());
-        return new AuthorizationRequest(subject, request.action(), resource, request.context());
+        return new AuthorizationRequest(request.app(), subject, request.action(), resource, request.context());
     }
 }

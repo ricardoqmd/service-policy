@@ -13,8 +13,8 @@ import io.quarkus.runtime.StartupEvent;
  * is idempotent, so running this on every boot is safe.
  *
  * <ul>
- *   <li>{@code policy_heads.resourceType} — evaluation reads by resource type (used from the
- *       activation slice onward); non-unique.
+ *   <li>{@code policy_heads.(app, resourceType, activeVersion)} — evaluation reads by app and
+ *       resource type (ADR-024); non-unique.
  *   <li>{@code policy_heads.policyId} — unique: at most one head per policy (structural invariant).
  *   <li>{@code policy_versions.(policyId, version)} — unique: a version is written at most once
  *       (append-only guardrail).
@@ -33,7 +33,7 @@ public class PolicyLifecycleIndexes {
     }
 
     void ensureIndexes(@Observes StartupEvent event) {
-        headRepository.mongoCollection().createIndex(Indexes.ascending("resourceType"));
+        headRepository.mongoCollection().createIndex(Indexes.ascending("app", "resourceType", "activeVersion"));
         headRepository.mongoCollection().createIndex(Indexes.ascending("policyId"), new IndexOptions().unique(true));
         versionRepository
                 .mongoCollection()

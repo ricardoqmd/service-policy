@@ -18,7 +18,9 @@ import com.mongodb.client.result.UpdateResult;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.problem.PolicyAlreadyExistsException;
 import io.github.ricardoqmd.servicepolicy.problem.PolicyNotFoundException;
+import io.github.ricardoqmd.servicepolicy.problem.PolicyValidationException;
 import io.github.ricardoqmd.servicepolicy.problem.PreconditionFailedException;
+import io.github.ricardoqmd.servicepolicy.problem.ProblemDetail;
 import io.github.ricardoqmd.servicepolicy.problem.VersionNotFoundException;
 
 /**
@@ -46,16 +48,34 @@ public class PolicyLifecycleStore {
         this.versionRepository = versionRepository;
     }
 
-    /** @return active policy heads for the requested zero-based page. */
+    /** @return active policy heads for the requested zero-based page (all apps). */
     public List<PolicyHead> findActiveHeads(int pageIndex, int size) {
         return headRepository.findActiveHeads(pageIndex, size).stream()
                 .map(mapper::head)
                 .toList();
     }
 
-    /** @return the number of active policy heads. */
+    /** @return active policy heads filtered by app for the requested zero-based page. */
+    public List<PolicyHead> findActiveHeads(String app, int pageIndex, int size) {
+        if (app == null) {
+            return findActiveHeads(pageIndex, size);
+        }
+        return headRepository.findActiveHeadsByApp(app, pageIndex, size).stream()
+                .map(mapper::head)
+                .toList();
+    }
+
+    /** @return the number of active policy heads (all apps). */
     public long countActiveHeads() {
         return headRepository.countActiveHeads();
+    }
+
+    /** @return the number of active policy heads for the given app (or all apps when {@code app} is null). */
+    public long countActiveHeads(String app) {
+        if (app == null) {
+            return countActiveHeads();
+        }
+        return headRepository.countActiveHeadsByApp(app);
     }
 
     /** @return the head for the given policyId, if present. */
@@ -86,11 +106,12 @@ public class PolicyLifecycleStore {
     }
 
     /**
-     * @return all active policies for the given resource type, for use by the evaluator (ADR-021).
-     *     Returns the complete set — not paged — so the evaluator sees every candidate.
+     * @return all active policies for the given app and resource type, for use by the evaluator
+     *     (ADR-021, ADR-024). Returns the complete set — not paged — so the evaluator sees every
+     *     candidate.
      */
-    public List<Policy> activePoliciesFor(String resourceType) {
-        return headRepository.findActiveByResourceType(resourceType).stream()
+    public List<Policy> activePoliciesFor(String app, String resourceType) {
+        return headRepository.findActiveByAppAndResourceType(app, resourceType).stream()
                 .map(mapper::activeContentPolicy)
                 .toList();
     }
@@ -108,13 +129,15 @@ public class PolicyLifecycleStore {
 
         Document setOnInsert = new Document()
                 .append("policyId", policyId)
+                .append("app", policy.app())
                 .append("resourceType", policy.resourceType())
                 .append("activeVersion", null)
                 .append("activeContent", null)
                 .append("revision", 0L)
                 .append("audit", auditDoc);
+        UpdateResult headUpsert = null;
         try {
-            headRepository
+            headUpsert = headRepository
                     .mongoCollection()
                     .updateOne(
                             Filters.eq("policyId", policyId),
@@ -125,6 +148,18 @@ public class PolicyLifecycleStore {
                 log.debugf("head for '%s' already exists (concurrent create); proceeding", policyId);
             } else {
                 throw e;
+            }
+        }
+
+        // If the head already existed (concurrent create or orphan from a prior failed insert),
+        // guard against cross-app corruption: a version must belong to the same app as its head.
+        if (headUpsert == null || headUpsert.getUpsertedId() == null) {
+            PolicyHeadDocument existingHead =
+                    headRepository.findByPolicyId(policyId).orElse(null);
+            if (existingHead != null && !policy.app().equals(existingHead.app)) {
+                throw new PolicyValidationException(List.of(new ProblemDetail.InvalidParam(
+                        "app",
+                        "app is immutable; policy '" + policyId + "' belongs to app '" + existingHead.app + "'")));
             }
         }
 
@@ -150,6 +185,13 @@ public class PolicyLifecycleStore {
      * @throws PolicyNotFoundException (404) if no head exists for the given id.
      */
     public int append(String policyId, Policy content, long ifMatch, String callerSubject, String changeReason) {
+        PolicyHeadDocument headDoc =
+                headRepository.findByPolicyId(policyId).orElseThrow(() -> new PolicyNotFoundException(policyId));
+        if (!content.app().equals(headDoc.app)) {
+            throw new PolicyValidationException(List.of(new ProblemDetail.InvalidParam(
+                    "app", "app is immutable; policy '" + policyId + "' belongs to app '" + headDoc.app + "'")));
+        }
+
         UpdateResult cas = headRepository
                 .mongoCollection()
                 .updateOne(

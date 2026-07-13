@@ -24,6 +24,7 @@ public class PolicyLifecycleDocumentMapper {
     public PolicyHead head(PolicyHeadDocument document) {
         return new PolicyHead(
                 document.policyId,
+                document.app,
                 document.resourceType,
                 document.activeVersion,
                 document.revision,

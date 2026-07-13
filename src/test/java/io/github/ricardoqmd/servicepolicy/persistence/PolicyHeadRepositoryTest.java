@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import io.quarkus.test.junit.QuarkusTest;
 
-/** Repository-level tests for {@link PolicyHeadRepository#findActiveByResourceType}. */
+/** Repository-level tests for {@link PolicyHeadRepository#findActiveByAppAndResourceType}. */
 @QuarkusTest
 class PolicyHeadRepositoryTest {
 
@@ -26,11 +26,11 @@ class PolicyHeadRepositoryTest {
     }
 
     @Test
-    void returnsOnlyActiveHeadsForTheRequestedResourceType() {
-        repository.persist(head("p-active", "document", 1, new Document("key", "val")));
-        repository.persist(head("p-inactive", "document", null, null));
+    void returnsOnlyActiveHeadsForTheRequestedAppAndResourceType() {
+        repository.persist(head("p-active", "test-app", "document", 1, new Document("key", "val")));
+        repository.persist(head("p-inactive", "test-app", "document", null, null));
 
-        List<PolicyHeadDocument> result = repository.findActiveByResourceType("document");
+        List<PolicyHeadDocument> result = repository.findActiveByAppAndResourceType("test-app", "document");
 
         assertEquals(1, result.size());
         assertEquals("p-active", result.get(0).policyId);
@@ -38,25 +38,35 @@ class PolicyHeadRepositoryTest {
     }
 
     @Test
-    void doesNotReturnHeadsOfDifferentResourceType() {
-        repository.persist(head("p-user", "user", 1, new Document("key", "val")));
+    void doesNotReturnHeadsOfDifferentApp() {
+        repository.persist(head("p-other-app", "other-app", "document", 1, new Document("key", "val")));
 
-        List<PolicyHeadDocument> result = repository.findActiveByResourceType("document");
+        List<PolicyHeadDocument> result = repository.findActiveByAppAndResourceType("test-app", "document");
 
         assertTrue(result.isEmpty());
     }
 
     @Test
-    void returnsEmptyListWhenNoActiveHeadsForType() {
-        List<PolicyHeadDocument> result = repository.findActiveByResourceType("document");
+    void doesNotReturnHeadsOfDifferentResourceType() {
+        repository.persist(head("p-user", "test-app", "user", 1, new Document("key", "val")));
+
+        List<PolicyHeadDocument> result = repository.findActiveByAppAndResourceType("test-app", "document");
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void returnsEmptyListWhenNoActiveHeadsForAppAndType() {
+        List<PolicyHeadDocument> result = repository.findActiveByAppAndResourceType("test-app", "document");
 
         assertTrue(result.isEmpty());
     }
 
     private static PolicyHeadDocument head(
-            String policyId, String resourceType, Integer activeVersion, Document activeContent) {
+            String policyId, String app, String resourceType, Integer activeVersion, Document activeContent) {
         PolicyHeadDocument doc = new PolicyHeadDocument();
         doc.policyId = policyId;
+        doc.app = app;
         doc.resourceType = resourceType;
         doc.activeVersion = activeVersion;
         doc.activeContent = activeContent;
