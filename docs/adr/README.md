@@ -33,6 +33,7 @@ both are kept for the audit trail.
 | [022](022-quarkus-jacoco-coverage.md)          | Adopt quarkus-jacoco for coverage instrumentation (revisits ADR-009)                       | Accepted |
 | [023](023-operand-type-validation.md)          | Operand type validation — reject literal mistyping at authoring, deny at evaluation        | Accepted |
 | [024](024-application-scoping.md)              | Application scoping — `app` as a first-class policy dimension (policy, request, selection) | Accepted |
+| [025](025-policy-list-status-filter.md)        | Policy listing shows all lifecycle states — `?status=` filter (default `all`)              | Accepted |
 
 ## Relationships
 
