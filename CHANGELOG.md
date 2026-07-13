@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/ricardoqmd/service-policy/compare/v0.1.29...v0.2.0) (2026-07-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* EvaluationRequest requires `app`; POST /v1/policies requires `app`.
+
+### Features
+
+* scope policies by application (app dimension) ([#113](https://github.com/ricardoqmd/service-policy/issues/113)) ([0a9a46d](https://github.com/ricardoqmd/service-policy/commit/0a9a46d14d8d5ed9d84431b17cf3c4b73742b2cd))
+
 ## [0.1.29](https://github.com/ricardoqmd/service-policy/compare/v0.1.28...v0.1.29) (2026-07-13)
 
 
