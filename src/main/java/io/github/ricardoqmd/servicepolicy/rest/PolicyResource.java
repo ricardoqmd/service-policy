@@ -13,14 +13,17 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.EntityTag;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriInfo;
 
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
 import io.github.ricardoqmd.servicepolicy.config.ServicePolicyConfig;
+import io.github.ricardoqmd.servicepolicy.domain.policy.HeadStatus;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.persistence.ConditionDocumentMapper;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyDocumentException;
@@ -164,19 +167,25 @@ public class PolicyResource {
 
     @GET
     @Operation(
-            summary = "List active policies",
-            description = "Returns active policy heads (ADR-016) as a paginated collection (ADR-017)."
-                    + " Use '?app=' to filter by application scope (ADR-024).")
+            summary = "List policy heads",
+            description = "Returns policy heads (ADR-016) as a paginated collection (ADR-017), in every"
+                    + " lifecycle state by default. Use '?status=' to filter by lifecycle state —"
+                    + " 'active' (has an active version), 'inactive' (has none) or 'all' (default,"
+                    + " no state filter), ADR-025 — and '?app=' to filter by application scope"
+                    + " (ADR-024). The filters combine with AND. An unknown 'status' returns 400.")
     public Response list(
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("size") @DefaultValue("20") int size,
             @QueryParam("view") String view,
-            @QueryParam("app") String app) {
+            @QueryParam("app") String app,
+            @QueryParam("status") String status,
+            @Context UriInfo uriInfo) {
         requireAdmin();
         validatePaging(page, size);
+        HeadStatus headStatus = parseStatus(status, uriInfo);
 
-        long total = lifecycleStore.countActiveHeads(app);
-        List<PolicyHead> heads = lifecycleStore.findActiveHeads(app, page - 1, size);
+        long total = lifecycleStore.countHeads(app, headStatus);
+        List<PolicyHead> heads = lifecycleStore.findHeads(app, headStatus, page - 1, size);
         Paginated.Pagination pagination = Paginated.Pagination.of(page, size, total);
 
         if (isFull(view)) {
@@ -260,6 +269,23 @@ public class PolicyResource {
         if (size < 1 || size > MAX_PAGE_SIZE) {
             throw new InvalidRequestException("'size' must be between 1 and " + MAX_PAGE_SIZE + ".");
         }
+    }
+
+    /**
+     * Rejects an unknown '?status=' the same way validatePaging rejects bad paging: 400 (ADR-025).
+     *
+     * <p>Only an <em>absent</em> parameter defaults to ALL. Presence is read from the query string
+     * rather than from the injected value because the runtime hands us {@code null} for both an
+     * absent parameter and a present-but-empty one ('?status='), and the latter is a client mistake
+     * to reject, not a request for the default. That is also why the default lives here instead of
+     * in a @DefaultValue, which would silently apply to the empty value too.
+     */
+    private static HeadStatus parseStatus(String status, UriInfo uriInfo) {
+        if (!uriInfo.getQueryParameters().containsKey("status")) {
+            return HeadStatus.ALL;
+        }
+        return HeadStatus.parse(status == null ? "" : status)
+                .orElseThrow(() -> new InvalidRequestException("'status' must be one of: active, inactive, all."));
     }
 
     private static boolean isFull(String view) {
