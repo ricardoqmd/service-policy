@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.29](https://github.com/ricardoqmd/service-policy/compare/v0.1.28...v0.1.29) (2026-07-13)
+
+
+### Documentation
+
+* add ADR-024 application scoping ([#110](https://github.com/ricardoqmd/service-policy/issues/110)) ([ddb6a20](https://github.com/ricardoqmd/service-policy/commit/ddb6a201ba348b4c07daeb0c6bba2b82ec56ba7b))
+
 ## [0.1.28](https://github.com/ricardoqmd/service-policy/compare/v0.1.27...v0.1.28) (2026-07-12)
 
 
