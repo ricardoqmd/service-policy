@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/ricardoqmd/service-policy/compare/v0.2.0...v0.2.1) (2026-07-13)
+
+
+### Documentation
+
+* add ADR-025 policy list status filter ([#118](https://github.com/ricardoqmd/service-policy/issues/118)) ([c8eb3ee](https://github.com/ricardoqmd/service-policy/commit/c8eb3ee8ba701a041d855ec38356ceeaecba4197))
+
 ## [0.2.0](https://github.com/ricardoqmd/service-policy/compare/v0.1.29...v0.2.0) (2026-07-13)
 
 
