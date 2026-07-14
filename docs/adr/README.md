@@ -34,6 +34,7 @@ both are kept for the audit trail.
 | [023](023-operand-type-validation.md)          | Operand type validation — reject literal mistyping at authoring, deny at evaluation        | Accepted |
 | [024](024-application-scoping.md)              | Application scoping — `app` as a first-class policy dimension (policy, request, selection) | Accepted |
 | [025](025-policy-list-status-filter.md)        | Policy listing shows all lifecycle states — `?status=` filter (default `all`)              | Accepted |
+| [026](026-composite-policy-identity.md)        | Composite identity (app, policyId) + app-nested routes; app leaves request bodies          | Accepted |
 
 ## Relationships
 
@@ -66,6 +67,13 @@ both are kept for the audit trail.
   guarantee rather than a naming convention, and `resourceType` becomes a per-app
   namespace. Per-app administrative scope stays outside the engine as a subject
   attribute (ADR-010), evaluated as a meta-policy.
+- **ADR-026 completes ADR-024.** ADR-024 made `app` the scoping dimension but left
+  `policyId` globally unique, forcing applications to coordinate policy names — and
+  producing an error that misdescribed a legitimate create as an attempt to mutate
+  another app's policy. ADR-026 makes identity composite `(app, policyId)` and moves the
+  whole v1 surface under `/v1/apps/{app}/…`, so the path is the single source of scope;
+  `app` leaves every request body. A single read-only cross-app catalogue
+  (`GET /v1/policies`) survives for multi-app administrators.
 
 ## Notes
 
