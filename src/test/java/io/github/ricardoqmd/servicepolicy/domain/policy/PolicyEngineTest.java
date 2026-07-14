@@ -23,7 +23,6 @@ class PolicyEngineTest {
     /** document-read-access: rules 1-3 from ADR-008, deny-overrides, default deny. */
     private Policy documentReadAccess() {
         return new Policy(
-                "test-app",
                 "document-read-access",
                 1,
                 "document",
@@ -128,14 +127,7 @@ class PolicyEngineTest {
     @Test
     void wildcardActionApplies() {
         Policy wildcard = new Policy(
-                "test-app",
-                "any-document",
-                1,
-                "document",
-                List.of("*"),
-                CombiningAlgorithm.DENY_OVERRIDES,
-                Effect.DENY,
-                List.of());
+                "any-document", 1, "document", List.of("*"), CombiningAlgorithm.DENY_OVERRIDES, Effect.DENY, List.of());
         List<Policy> applicable = selector.select(List.of(wildcard), read0("document:delete"));
         assertEquals(1, applicable.size());
     }
@@ -145,7 +137,6 @@ class PolicyEngineTest {
     @Test
     void denyPolicyOverridesPermitPolicy() {
         Policy permitAll = new Policy(
-                "test-app",
                 "permit-all",
                 1,
                 "document",
@@ -164,7 +155,6 @@ class PolicyEngineTest {
     @Test
     void defaultPermitPolicyAllowsWhenNoRuleMatches() {
         Policy permitByDefault = new Policy(
-                "test-app",
                 "open-document",
                 1,
                 "document",

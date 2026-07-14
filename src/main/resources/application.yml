@@ -11,6 +11,14 @@ quarkus:
     name: service-policy
     version: 0.1.0-SNAPSHOT
 
+  # ─── JSON bodies ───────────────────────────────────────────
+  # Strict request bodies: an unknown field is a client error, not something to ignore.
+  # This is what makes "'app' must not be present in the body" enforceable (ADR-026) —
+  # 'app' was removed from the request records, so silently ignoring it would accept a body
+  # that contradicts the path. UnknownPropertyMapper turns the failure into 400 problem+json.
+  jackson:
+    fail-on-unknown-properties: true
+
   # ─── HTTP server ───────────────────────────────────────────
   http:
     port: 8080

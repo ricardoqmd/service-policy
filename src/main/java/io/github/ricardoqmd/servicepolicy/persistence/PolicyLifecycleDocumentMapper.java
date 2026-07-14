@@ -33,7 +33,7 @@ public class PolicyLifecycleDocumentMapper {
     }
 
     public PolicyVersion version(PolicyVersionDocument document) {
-        return new PolicyVersion(policyMapper.fromDocument(document.content), audit(document.audit));
+        return new PolicyVersion(document.app, policyMapper.fromDocument(document.content), audit(document.audit));
     }
 
     /**
@@ -49,8 +49,10 @@ public class PolicyLifecycleDocumentMapper {
         return new Document(CREATED_BY, createdBy).append(CREATED_AT, createdAt).append(CHANGE_REASON, changeReason);
     }
 
-    public PolicyVersionDocument toVersionDocument(String policyId, int version, Policy policy, Document audit) {
+    public PolicyVersionDocument toVersionDocument(
+            String app, String policyId, int version, Policy policy, Document audit) {
         PolicyVersionDocument doc = new PolicyVersionDocument();
+        doc.app = app;
         doc.policyId = policyId;
         doc.version = version;
         doc.content = new Document(policyMapper.toDocument(policy));

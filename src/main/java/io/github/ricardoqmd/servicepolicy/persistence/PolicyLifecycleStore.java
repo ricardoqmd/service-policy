@@ -7,6 +7,7 @@ import java.util.Optional;
 import jakarta.inject.Singleton;
 
 import org.bson.Document;
+import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
 
 import com.mongodb.MongoWriteException;
@@ -19,9 +20,8 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.HeadStatus;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.problem.PolicyAlreadyExistsException;
 import io.github.ricardoqmd.servicepolicy.problem.PolicyNotFoundException;
-import io.github.ricardoqmd.servicepolicy.problem.PolicyValidationException;
 import io.github.ricardoqmd.servicepolicy.problem.PreconditionFailedException;
-import io.github.ricardoqmd.servicepolicy.problem.ProblemDetail;
+import io.github.ricardoqmd.servicepolicy.problem.ProblemException;
 import io.github.ricardoqmd.servicepolicy.problem.VersionNotFoundException;
 
 /**
@@ -64,139 +64,148 @@ public class PolicyLifecycleStore {
         return headRepository.countHeads(app, status);
     }
 
-    /** @return the head for the given policyId, if present. */
-    public Optional<PolicyHead> findHead(String policyId) {
-        return headRepository.findByPolicyId(policyId).map(mapper::head);
+    /** @return the head for the given identity {@code (app, policyId)} (ADR-026), if present. */
+    public Optional<PolicyHead> findHead(String app, String policyId) {
+        return headRepository.findByAppAndPolicyId(app, policyId).map(mapper::head);
     }
 
-    /** @return {@code true} if a head exists for the given policyId. */
-    public boolean headExists(String policyId) {
-        return headRepository.existsByPolicyId(policyId);
+    /** @return {@code true} if a head exists for the given identity {@code (app, policyId)}. */
+    public boolean headExists(String app, String policyId) {
+        return headRepository.existsByAppAndPolicyId(app, policyId);
     }
 
     /** @return versions of the given policy (newest first) for the requested zero-based page. */
-    public List<PolicyVersion> findVersions(String policyId, int pageIndex, int size) {
-        return versionRepository.findByPolicyId(policyId, pageIndex, size).stream()
+    public List<PolicyVersion> findVersions(String app, String policyId, int pageIndex, int size) {
+        return versionRepository.findByAppAndPolicyId(app, policyId, pageIndex, size).stream()
                 .map(mapper::version)
                 .toList();
     }
 
     /** @return the number of versions of the given policy. */
-    public long countVersions(String policyId) {
-        return versionRepository.countByPolicyId(policyId);
+    public long countVersions(String app, String policyId) {
+        return versionRepository.countByAppAndPolicyId(app, policyId);
     }
 
     /** @return the specific version of the given policy, if present. */
-    public Optional<PolicyVersion> findVersion(String policyId, int version) {
-        return versionRepository.findByPolicyIdAndVersion(policyId, version).map(mapper::version);
+    public Optional<PolicyVersion> findVersion(String app, String policyId, int version) {
+        return versionRepository
+                .findByAppAndPolicyIdAndVersion(app, policyId, version)
+                .map(mapper::version);
     }
 
     /**
      * @return all active policies for the given app and resource type, for use by the evaluator
      *     (ADR-021, ADR-024). Returns the complete set — not paged — so the evaluator sees every
      *     candidate.
+     *     <p>This is the single place where app scoping is enforced for evaluation. Since ADR-026
+     *     the policy content no longer carries its app, so the selector can no longer re-check it
+     *     downstream; the defence in depth lives here instead, as a re-check of each head's own
+     *     {@code app} against the requested one. The Mongo filter already guarantees it — a head
+     *     that fails this check means the query and the stored data disagree, which is a bug, so it
+     *     is dropped and logged rather than evaluated.
      */
     public List<Policy> activePoliciesFor(String app, String resourceType) {
         return headRepository.findActiveByAppAndResourceType(app, resourceType).stream()
+                .filter(head -> {
+                    boolean sameApp = app.equals(head.app);
+                    if (!sameApp) {
+                        log.errorf(
+                                "head '%s' returned for app '%s' but belongs to app '%s'; dropped from evaluation",
+                                head.policyId, app, head.app);
+                    }
+                    return sameApp;
+                })
                 .map(mapper::activeContentPolicy)
                 .toList();
     }
 
     /**
-     * Creates a new policy (head-first, version insert as commit point — ADR-019 §create).
-     * The head upsert is idempotent; a concurrent create that wins the upsert race does not block
-     * this thread — both proceed to the version insert where the unique index arbitrates.
+     * Creates a new policy in the given app (head-first, version insert as commit point — ADR-019
+     * §create). The head upsert is idempotent; a concurrent create that wins the upsert race does
+     * not block this thread — both proceed to the version insert where the unique index arbitrates.
      *
-     * @throws PolicyAlreadyExistsException (409) if version 1 already exists.
+     * <p>Identity is {@code (app, policyId)} (ADR-026), so the upsert filter and the unique indexes
+     * are per-app: the same policyId in another app is a different policy and is created normally.
+     * The ADR-024 app-immutability guard that used to fire here is gone — it misdiagnosed exactly
+     * that legitimate case as an attempt to mutate another app's policy.
+     *
+     * @throws PolicyAlreadyExistsException (409) if version 1 already exists <em>in this app</em>.
      */
-    public void create(Policy policy, String callerSubject, String changeReason) {
+    public void create(String app, Policy policy, String callerSubject, String changeReason) {
         String policyId = policy.id();
         Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
 
         Document setOnInsert = new Document()
                 .append("policyId", policyId)
-                .append("app", policy.app())
+                .append("app", app)
                 .append("resourceType", policy.resourceType())
                 .append("activeVersion", null)
                 .append("activeContent", null)
                 .append("revision", 0L)
                 .append("audit", auditDoc);
-        UpdateResult headUpsert = null;
         try {
-            headUpsert = headRepository
+            headRepository
                     .mongoCollection()
                     .updateOne(
-                            Filters.eq("policyId", policyId),
+                            identity(app, policyId),
                             new Document("$setOnInsert", setOnInsert),
                             new UpdateOptions().upsert(true));
         } catch (MongoWriteException e) {
             if (e.getError().getCode() == DUPLICATE_KEY_CODE) {
-                log.debugf("head for '%s' already exists (concurrent create); proceeding", policyId);
+                log.debugf("head for '%s/%s' already exists (concurrent create); proceeding", app, policyId);
             } else {
                 throw e;
             }
         }
 
-        // If the head already existed (concurrent create or orphan from a prior failed insert),
-        // guard against cross-app corruption: a version must belong to the same app as its head.
-        if (headUpsert == null || headUpsert.getUpsertedId() == null) {
-            PolicyHeadDocument existingHead =
-                    headRepository.findByPolicyId(policyId).orElse(null);
-            if (existingHead != null && !policy.app().equals(existingHead.app)) {
-                throw new PolicyValidationException(List.of(new ProblemDetail.InvalidParam(
-                        "app",
-                        "app is immutable; policy '" + policyId + "' belongs to app '" + existingHead.app + "'")));
-            }
-        }
-
-        PolicyVersionDocument versionDoc = mapper.toVersionDocument(policyId, 1, policy, auditDoc);
+        PolicyVersionDocument versionDoc = mapper.toVersionDocument(app, policyId, 1, policy, auditDoc);
         try {
             versionRepository.mongoCollection().insertOne(versionDoc);
         } catch (MongoWriteException e) {
             if (e.getError().getCode() == DUPLICATE_KEY_CODE) {
-                throw new PolicyAlreadyExistsException(policyId);
+                throw new PolicyAlreadyExistsException(app, policyId);
             }
             throw e;
         }
 
-        log.infof("policy '%s' created inactive; not evaluable until activation", policyId);
+        log.infof("policy '%s/%s' created inactive; not evaluable until activation", app, policyId);
     }
 
     /**
      * Appends a new version (CAS on head revision as commit point — ADR-019 §append).
      *
+     * <p>The ADR-024 rule "a new version cannot change the policy's app" still holds, but it is no
+     * longer checked: it is now impossible to express. The head is located by {@code (app,
+     * policyId)} taken from the path, and the content carries no app of its own (ADR-026), so there
+     * are no two app values that could disagree. Appending "under a different app" simply addresses
+     * a different policy — which either exists in that app or yields 404.
+     *
      * @param ifMatch the revision value from the client's {@code If-Match} header.
      * @return the new version number.
      * @throws PreconditionFailedException (412) if {@code ifMatch} is stale.
-     * @throws PolicyNotFoundException (404) if no head exists for the given id.
+     * @throws PolicyNotFoundException (404) if no head exists for {@code (app, policyId)}.
      */
-    public int append(String policyId, Policy content, long ifMatch, String callerSubject, String changeReason) {
-        PolicyHeadDocument headDoc =
-                headRepository.findByPolicyId(policyId).orElseThrow(() -> new PolicyNotFoundException(policyId));
-        if (!content.app().equals(headDoc.app)) {
-            throw new PolicyValidationException(List.of(new ProblemDetail.InvalidParam(
-                    "app", "app is immutable; policy '" + policyId + "' belongs to app '" + headDoc.app + "'")));
+    public int append(
+            String app, String policyId, Policy content, long ifMatch, String callerSubject, String changeReason) {
+        if (!headExists(app, policyId)) {
+            throw new PolicyNotFoundException(app, policyId);
         }
 
         UpdateResult cas = headRepository
                 .mongoCollection()
                 .updateOne(
-                        Filters.and(Filters.eq("policyId", policyId), Filters.eq("revision", ifMatch)),
+                        Filters.and(identity(app, policyId), Filters.eq("revision", ifMatch)),
                         Updates.inc("revision", 1L));
 
         if (cas.getMatchedCount() == 0) {
-            Optional<PolicyHead> existing = findHead(policyId);
-            if (existing.isPresent()) {
-                throw new PreconditionFailedException(policyId, existing.get().revision());
-            }
-            throw new PolicyNotFoundException(policyId);
+            throw staleOrMissing(app, policyId);
         }
 
-        List<PolicyVersionDocument> latest = versionRepository.findByPolicyId(policyId, 0, 1);
+        List<PolicyVersionDocument> latest = versionRepository.findByAppAndPolicyId(app, policyId, 0, 1);
         int nextVersion = latest.isEmpty() ? 1 : latest.get(0).version + 1;
 
         Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
-        PolicyVersionDocument versionDoc = mapper.toVersionDocument(policyId, nextVersion, content, auditDoc);
+        PolicyVersionDocument versionDoc = mapper.toVersionDocument(app, policyId, nextVersion, content, auditDoc);
         versionRepository.mongoCollection().insertOne(versionDoc);
 
         return nextVersion;
@@ -213,13 +222,15 @@ public class PolicyLifecycleStore {
      * @throws PolicyNotFoundException (404) if neither head nor version exists.
      * @throws PreconditionFailedException (412) if {@code ifMatch} is stale.
      */
-    public PolicyHead activate(String policyId, int version, long ifMatch, String callerSubject, String changeReason) {
-        Optional<PolicyVersionDocument> versionDocOpt = versionRepository.findByPolicyIdAndVersion(policyId, version);
+    public PolicyHead activate(
+            String app, String policyId, int version, long ifMatch, String callerSubject, String changeReason) {
+        Optional<PolicyVersionDocument> versionDocOpt =
+                versionRepository.findByAppAndPolicyIdAndVersion(app, policyId, version);
         if (versionDocOpt.isEmpty()) {
-            if (headExists(policyId)) {
-                throw new VersionNotFoundException(policyId, version);
+            if (headExists(app, policyId)) {
+                throw new VersionNotFoundException(app, policyId, version);
             }
-            throw new PolicyNotFoundException(policyId);
+            throw new PolicyNotFoundException(app, policyId);
         }
         PolicyVersionDocument versionDoc = versionDocOpt.get();
 
@@ -227,7 +238,7 @@ public class PolicyLifecycleStore {
         UpdateResult cas = headRepository
                 .mongoCollection()
                 .updateOne(
-                        Filters.and(Filters.eq("policyId", policyId), Filters.eq("revision", ifMatch)),
+                        Filters.and(identity(app, policyId), Filters.eq("revision", ifMatch)),
                         Updates.combine(
                                 Updates.set("activeVersion", version),
                                 Updates.set("activeContent", versionDoc.content),
@@ -235,14 +246,10 @@ public class PolicyLifecycleStore {
                                 Updates.inc("revision", 1L)));
 
         if (cas.getMatchedCount() == 0) {
-            Optional<PolicyHead> existing = findHead(policyId);
-            if (existing.isPresent()) {
-                throw new PreconditionFailedException(policyId, existing.get().revision());
-            }
-            throw new PolicyNotFoundException(policyId);
+            throw staleOrMissing(app, policyId);
         }
 
-        return findHead(policyId).orElseThrow(() -> new PolicyNotFoundException(policyId));
+        return findHead(app, policyId).orElseThrow(() -> new PolicyNotFoundException(app, policyId));
     }
 
     /**
@@ -252,12 +259,12 @@ public class PolicyLifecycleStore {
      * @throws PolicyNotFoundException (404) if the policy does not exist.
      * @throws PreconditionFailedException (412) if {@code ifMatch} is stale.
      */
-    public PolicyHead deactivate(String policyId, long ifMatch, String callerSubject, String changeReason) {
+    public PolicyHead deactivate(String app, String policyId, long ifMatch, String callerSubject, String changeReason) {
         Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
         UpdateResult cas = headRepository
                 .mongoCollection()
                 .updateOne(
-                        Filters.and(Filters.eq("policyId", policyId), Filters.eq("revision", ifMatch)),
+                        Filters.and(identity(app, policyId), Filters.eq("revision", ifMatch)),
                         Updates.combine(
                                 Updates.set("activeVersion", null),
                                 Updates.set("activeContent", null),
@@ -265,13 +272,26 @@ public class PolicyLifecycleStore {
                                 Updates.inc("revision", 1L)));
 
         if (cas.getMatchedCount() == 0) {
-            Optional<PolicyHead> existing = findHead(policyId);
-            if (existing.isPresent()) {
-                throw new PreconditionFailedException(policyId, existing.get().revision());
-            }
-            throw new PolicyNotFoundException(policyId);
+            throw staleOrMissing(app, policyId);
         }
 
-        return findHead(policyId).orElseThrow(() -> new PolicyNotFoundException(policyId));
+        return findHead(app, policyId).orElseThrow(() -> new PolicyNotFoundException(app, policyId));
+    }
+
+    /** The composite-identity filter every single-policy write CASes against (ADR-026). */
+    private static Bson identity(String app, String policyId) {
+        return Filters.and(Filters.eq("app", app), Filters.eq("policyId", policyId));
+    }
+
+    /**
+     * A CAS that matched nothing is either a stale If-Match on an existing policy (412) or a policy
+     * that does not exist in this app (404).
+     */
+    private ProblemException staleOrMissing(String app, String policyId) {
+        Optional<PolicyHead> existing = findHead(app, policyId);
+        if (existing.isPresent()) {
+            return new PreconditionFailedException(app, policyId, existing.get().revision());
+        }
+        return new PolicyNotFoundException(app, policyId);
     }
 }

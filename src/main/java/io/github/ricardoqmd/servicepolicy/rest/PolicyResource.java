@@ -49,8 +49,14 @@ import io.quarkus.security.Authenticated;
  * <p>Authoring ({@code POST}) and appending ({@code PUT}) write through the head-pointer model
  * (ADR-016) following the transaction-free write invariants of ADR-019. Reads ({@code GET}) return
  * the head-pointer model using the response contract of ADR-017.
+ *
+ * <p>Every route is nested under its application (ADR-026): a policy is identified by the composite
+ * key {@code (app, policyId)}, and the path is the single source of the scope. Consequently {@code
+ * app} must not appear in any request body — a body that carries it is rejected rather than
+ * reconciled, so a request can never state one app in the route and another in the payload. The
+ * cross-app catalogue lives on its own read-only resource ({@link PolicyCatalogResource}).
  */
-@Path("/v1/policies")
+@Path("/v1/apps/{app}/policies")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 @Tag(name = "policies", description = "PAP-facing policy authoring and read endpoints.")
@@ -74,10 +80,11 @@ public class PolicyResource {
     @POST
     @Operation(
             summary = "Create a policy",
-            description = "Creates a new inactive policy (ADR-014, ADR-019). Requires the admin marker."
-                    + " Returns 400 if the body is malformed, 409 if a policy with the same id already"
-                    + " exists. The policy is not evaluable until activated.")
-    public Response create(Map<String, Object> body) {
+            description = "Creates a new inactive policy in the given app (ADR-014, ADR-019, ADR-026). Requires"
+                    + " the admin marker. The body must NOT carry an 'app' field — it is determined by"
+                    + " the path. Returns 400 if the body is malformed or carries 'app', 409 if a policy"
+                    + " with the same id already exists IN THIS APP. Not evaluable until activated.")
+    public Response create(@PathParam("app") String app, Map<String, Object> body) {
         requireAdmin();
 
         if (body == null || body.isEmpty()) {
@@ -92,7 +99,7 @@ public class PolicyResource {
         }
 
         String changeReason = body.get("changeReason") instanceof String s ? s : null;
-        lifecycleStore.create(policy, authContext.callerSubject(), changeReason);
+        lifecycleStore.create(app, policy, authContext.callerSubject(), changeReason);
         return Response.status(Response.Status.CREATED)
                 .entity(new PolicyCreated(policy.id(), 1, false))
                 .build();
@@ -106,7 +113,10 @@ public class PolicyResource {
                     + " If-Match header with the current ETag. Returns 428 if If-Match is absent,"
                     + " 412 if stale, 404 if policy unknown, 400 if body invalid.")
     public Response append(
-            @PathParam("id") String id, @HeaderParam("If-Match") String ifMatch, WriteVersionRequest body) {
+            @PathParam("app") String app,
+            @PathParam("id") String id,
+            @HeaderParam("If-Match") String ifMatch,
+            WriteVersionRequest body) {
         requireAdmin();
         long revision = parseIfMatch(ifMatch);
 
@@ -121,7 +131,8 @@ public class PolicyResource {
             throw new PolicyValidationException(List.of(new ProblemDetail.InvalidParam("content", e.getMessage())));
         }
 
-        int newVersion = lifecycleStore.append(id, policy, revision, authContext.callerSubject(), body.changeReason());
+        int newVersion =
+                lifecycleStore.append(app, id, policy, revision, authContext.callerSubject(), body.changeReason());
         return Response.ok(new PolicyCreated(id, newVersion, false)).build();
     }
 
@@ -134,14 +145,17 @@ public class PolicyResource {
                     + " absent or unparseable, 412 if stale (with currentRevision), 404 if the"
                     + " policy or the requested version does not exist.")
     public Response activate(
-            @PathParam("id") String id, @HeaderParam("If-Match") String ifMatch, ActivateRequest body) {
+            @PathParam("app") String app,
+            @PathParam("id") String id,
+            @HeaderParam("If-Match") String ifMatch,
+            ActivateRequest body) {
         requireAdmin();
         long revision = parseIfMatch(ifMatch);
         if (body == null || body.version() == null) {
             throw new InvalidRequestException("request body must include a 'version' number.");
         }
-        PolicyHead head =
-                lifecycleStore.activate(id, body.version(), revision, authContext.callerSubject(), body.changeReason());
+        PolicyHead head = lifecycleStore.activate(
+                app, id, body.version(), revision, authContext.callerSubject(), body.changeReason());
         return Response.ok(readMapper.headView(head))
                 .tag(new EntityTag(String.valueOf(head.revision())))
                 .build();
@@ -155,11 +169,14 @@ public class PolicyResource {
                     + " history (ADR-014, ADR-020). Requires the admin marker and If-Match."
                     + " Body is optional (only changeReason). Returns 428, 412, or 404 on errors.")
     public Response deactivate(
-            @PathParam("id") String id, @HeaderParam("If-Match") String ifMatch, DeactivateRequest body) {
+            @PathParam("app") String app,
+            @PathParam("id") String id,
+            @HeaderParam("If-Match") String ifMatch,
+            DeactivateRequest body) {
         requireAdmin();
         long revision = parseIfMatch(ifMatch);
         String changeReason = body != null ? body.changeReason() : null;
-        PolicyHead head = lifecycleStore.deactivate(id, revision, authContext.callerSubject(), changeReason);
+        PolicyHead head = lifecycleStore.deactivate(app, id, revision, authContext.callerSubject(), changeReason);
         return Response.ok(readMapper.headView(head))
                 .tag(new EntityTag(String.valueOf(head.revision())))
                 .build();
@@ -167,17 +184,17 @@ public class PolicyResource {
 
     @GET
     @Operation(
-            summary = "List policy heads",
-            description = "Returns policy heads (ADR-016) as a paginated collection (ADR-017), in every"
-                    + " lifecycle state by default. Use '?status=' to filter by lifecycle state —"
-                    + " 'active' (has an active version), 'inactive' (has none) or 'all' (default,"
-                    + " no state filter), ADR-025 — and '?app=' to filter by application scope"
-                    + " (ADR-024). The filters combine with AND. An unknown 'status' returns 400.")
+            summary = "List the policy heads of an application",
+            description = "Returns the policy heads of this app (ADR-016, ADR-026) as a paginated collection"
+                    + " (ADR-017), in every lifecycle state by default. Use '?status=' to filter by"
+                    + " lifecycle state — 'active' (has an active version), 'inactive' (has none) or"
+                    + " 'all' (default, no state filter), ADR-025. An unknown 'status' returns 400."
+                    + " The cross-app catalogue is a different resource: GET /v1/policies.")
     public Response list(
+            @PathParam("app") String app,
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("size") @DefaultValue("20") int size,
             @QueryParam("view") String view,
-            @QueryParam("app") String app,
             @QueryParam("status") String status,
             @Context UriInfo uriInfo) {
         requireAdmin();
@@ -204,9 +221,9 @@ public class PolicyResource {
             summary = "Get a policy head",
             description = "Returns the full policy head. Response includes a strong ETag equal to the"
                     + " head's current revision. 404 if no policy has the given id.")
-    public Response getById(@PathParam("id") String id) {
+    public Response getById(@PathParam("app") String app, @PathParam("id") String id) {
         requireAdmin();
-        PolicyHead head = lifecycleStore.findHead(id).orElseThrow(() -> new PolicyNotFoundException(id));
+        PolicyHead head = lifecycleStore.findHead(app, id).orElseThrow(() -> new PolicyNotFoundException(app, id));
         return Response.ok(readMapper.headView(head))
                 .tag(new EntityTag(String.valueOf(head.revision())))
                 .build();
@@ -218,18 +235,19 @@ public class PolicyResource {
             summary = "List versions of a policy",
             description = "Returns the policy's versions (newest first) as a paginated collection.")
     public Response listVersions(
+            @PathParam("app") String app,
             @PathParam("id") String id,
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("size") @DefaultValue("20") int size,
             @QueryParam("view") String view) {
         requireAdmin();
         validatePaging(page, size);
-        if (!lifecycleStore.headExists(id)) {
-            throw new PolicyNotFoundException(id);
+        if (!lifecycleStore.headExists(app, id)) {
+            throw new PolicyNotFoundException(app, id);
         }
 
-        long total = lifecycleStore.countVersions(id);
-        List<PolicyVersion> versions = lifecycleStore.findVersions(id, page - 1, size);
+        long total = lifecycleStore.countVersions(app, id);
+        List<PolicyVersion> versions = lifecycleStore.findVersions(app, id, page - 1, size);
         Paginated.Pagination pagination = Paginated.Pagination.of(page, size, total);
 
         if (isFull(view)) {
@@ -248,12 +266,13 @@ public class PolicyResource {
             summary = "Get a specific policy version",
             description = "Returns the full content of one immutable version. 404 if the policy or"
                     + " version does not exist.")
-    public Response getVersion(@PathParam("id") String id, @PathParam("version") int version) {
+    public Response getVersion(
+            @PathParam("app") String app, @PathParam("id") String id, @PathParam("version") int version) {
         requireAdmin();
         return lifecycleStore
-                .findVersion(id, version)
+                .findVersion(app, id, version)
                 .map(found -> Response.ok(readMapper.versionContent(found)).build())
-                .orElseThrow(() -> new VersionNotFoundException(id, version));
+                .orElseThrow(() -> new VersionNotFoundException(app, id, version));
     }
 
     private void requireAdmin() {

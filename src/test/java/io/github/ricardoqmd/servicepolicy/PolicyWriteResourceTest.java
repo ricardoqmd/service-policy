@@ -20,16 +20,17 @@ import io.restassured.http.ContentType;
 
 /**
  * Integration tests for the write endpoints (POST create, PUT append) and the RFC 9457 error
- * surface (ADR-018, ADR-019).
+ * surface (ADR-018, ADR-019). Routes are nested under the app (ADR-026).
  */
 @QuarkusTest
 class PolicyWriteResourceTest {
 
     private static final String ADMIN = "authz-admin";
 
+    private static final String APP = "test-app";
+
     private static final String VALID_POLICY = """
             {
-              "app": "test-app",
               "policyId": "p-write",
               "version": 1,
               "resourceType": "document",
@@ -49,7 +50,6 @@ class PolicyWriteResourceTest {
     private static final String VALID_CONTENT_BODY = """
             {
               "content": {
-                "app": "test-app",
                 "policyId": "p-write",
                 "version": 2,
                 "resourceType": "document",
@@ -94,12 +94,49 @@ class PolicyWriteResourceTest {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201)
                 .body("policyId", equalTo("p-write"))
                 .body("version", equalTo(1))
                 .body("active", equalTo(false));
+
+        given().when()
+                .get("/v1/apps/{app}/policies/p-write", APP)
+                .then()
+                .statusCode(200)
+                .body("app", equalTo(APP));
+    }
+
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void createWithAppInBodyReturns400() {
+        given().contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "app": "test-app",
+                          "policyId": "p-write",
+                          "version": 1,
+                          "resourceType": "document",
+                          "actions": ["read"],
+                          "combiningAlgorithm": "DENY_OVERRIDES",
+                          "defaultEffect": "DENY",
+                          "rules": [
+                            {
+                              "id": "r1", "effect": "PERMIT",
+                              "condition": {"type": "comparison", "op": "EQ",
+                                "left": {"ref": "subject.id"}, "right": {"value": "admin"}}
+                            }
+                          ]
+                        }
+                        """)
+                .when()
+                .post("/v1/apps/{app}/policies", APP)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("INVALID_POLICY"));
     }
 
     @Test
@@ -110,14 +147,14 @@ class PolicyWriteResourceTest {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201);
 
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(409)
                 .body("code", equalTo("POLICY_ALREADY_EXISTS"))
@@ -128,10 +165,47 @@ class PolicyWriteResourceTest {
     @TestSecurity(
             user = "admin-user",
             roles = {ADMIN})
+    void createSamePolicyIdUnderDifferentAppSucceeds() {
+        given().contentType(ContentType.JSON)
+                .body(VALID_POLICY)
+                .when()
+                .post("/v1/apps/{app}/policies", APP)
+                .then()
+                .statusCode(201);
+
+        given().contentType(ContentType.JSON)
+                .body(VALID_POLICY)
+                .when()
+                .post("/v1/apps/{app}/policies", "other-app")
+                .then()
+                .statusCode(201)
+                .body("policyId", equalTo("p-write"))
+                .body("version", equalTo(1))
+                .body("active", equalTo(false));
+
+        given().when()
+                .get("/v1/apps/{app}/policies/p-write", "other-app")
+                .then()
+                .statusCode(200)
+                .body("app", equalTo("other-app"))
+                .body("policyId", equalTo("p-write"));
+
+        given().when()
+                .get("/v1/apps/{app}/policies/p-write", APP)
+                .then()
+                .statusCode(200)
+                .body("app", equalTo(APP))
+                .body("policyId", equalTo("p-write"));
+    }
+
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
     void createSelfHealsOrphanHead() {
         PolicyHeadDocument orphan = new PolicyHeadDocument();
         orphan.policyId = "p-write";
-        orphan.app = "test-app";
+        orphan.app = APP;
         orphan.resourceType = "document";
         orphan.activeVersion = null;
         orphan.activeContent = null;
@@ -144,7 +218,7 @@ class PolicyWriteResourceTest {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201)
                 .body("policyId", equalTo("p-write"))
@@ -161,12 +235,12 @@ class PolicyWriteResourceTest {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201);
 
         given().when()
-                .get("/v1/policies/p-write")
+                .get("/v1/apps/{app}/policies/p-write", APP)
                 .then()
                 .statusCode(200)
                 .header("ETag", notNullValue())
@@ -183,12 +257,12 @@ class PolicyWriteResourceTest {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201);
 
         String etag = given().when()
-                .get("/v1/policies/p-write")
+                .get("/v1/apps/{app}/policies/p-write", APP)
                 .then()
                 .statusCode(200)
                 .extract()
@@ -198,14 +272,18 @@ class PolicyWriteResourceTest {
                 .header("If-Match", etag)
                 .body(VALID_CONTENT_BODY)
                 .when()
-                .put("/v1/policies/p-write")
+                .put("/v1/apps/{app}/policies/p-write", APP)
                 .then()
                 .statusCode(200)
                 .body("policyId", equalTo("p-write"))
                 .body("version", equalTo(2))
                 .body("active", equalTo(false));
 
-        given().when().get("/v1/policies/p-write").then().statusCode(200).body("revision", equalTo(1));
+        given().when()
+                .get("/v1/apps/{app}/policies/p-write", APP)
+                .then()
+                .statusCode(200)
+                .body("revision", equalTo(1));
     }
 
     @Test
@@ -216,14 +294,14 @@ class PolicyWriteResourceTest {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201);
 
         given().contentType(ContentType.JSON)
                 .body(VALID_CONTENT_BODY)
                 .when()
-                .put("/v1/policies/p-write")
+                .put("/v1/apps/{app}/policies/p-write", APP)
                 .then()
                 .statusCode(428)
                 .body("code", equalTo("PRECONDITION_REQUIRED"));
@@ -237,7 +315,7 @@ class PolicyWriteResourceTest {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201);
 
@@ -245,7 +323,7 @@ class PolicyWriteResourceTest {
                 .header("If-Match", "\"999\"")
                 .body(VALID_CONTENT_BODY)
                 .when()
-                .put("/v1/policies/p-write")
+                .put("/v1/apps/{app}/policies/p-write", APP)
                 .then()
                 .statusCode(412)
                 .body("code", equalTo("PRECONDITION_FAILED"))
@@ -262,7 +340,7 @@ class PolicyWriteResourceTest {
                 .header("If-Match", "\"0\"")
                 .body(VALID_CONTENT_BODY)
                 .when()
-                .put("/v1/policies/ghost")
+                .put("/v1/apps/{app}/policies/ghost", APP)
                 .then()
                 .statusCode(404)
                 .body("code", equalTo("POLICY_NOT_FOUND"));
@@ -276,12 +354,58 @@ class PolicyWriteResourceTest {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201);
 
         String etag = given().when()
-                .get("/v1/policies/p-write")
+                .get("/v1/apps/{app}/policies/p-write", APP)
+                .then()
+                .statusCode(200)
+                .extract()
+                .header("ETag");
+
+        given().contentType(ContentType.JSON)
+                .header("If-Match", etag)
+                .body("""
+                        {
+                          "content": {
+                            "policyId": "p-write",
+                            "version": 2,
+                            "resourceType": "document",
+                            "actions": ["read"],
+                            "combiningAlgorithm": "DENY_OVERRIDES",
+                            "defaultEffect": "DENY",
+                            "rules": [
+                              {"id": "r1", "effect": "PERMIT",
+                               "condition": {"type": "comparison", "op": "NOPE",
+                                 "left": {"ref": "subject.id"}, "right": {"value": "x"}}}
+                            ]
+                          }
+                        }
+                        """)
+                .when()
+                .put("/v1/apps/{app}/policies/p-write", APP)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("INVALID_POLICY"))
+                .body("invalidParams", notNullValue());
+    }
+
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void putWithAppInContentReturns400() {
+        given().contentType(ContentType.JSON)
+                .body(VALID_POLICY)
+                .when()
+                .post("/v1/apps/{app}/policies", APP)
+                .then()
+                .statusCode(201);
+
+        String etag = given().when()
+                .get("/v1/apps/{app}/policies/p-write", APP)
                 .then()
                 .statusCode(200)
                 .extract()
@@ -300,19 +424,18 @@ class PolicyWriteResourceTest {
                             "combiningAlgorithm": "DENY_OVERRIDES",
                             "defaultEffect": "DENY",
                             "rules": [
-                              {"id": "r1", "effect": "PERMIT",
-                               "condition": {"type": "comparison", "op": "NOPE",
-                                 "left": {"ref": "subject.id"}, "right": {"value": "x"}}}
+                              {"id": "r2", "effect": "DENY",
+                               "condition": {"type": "comparison", "op": "EQ",
+                                 "left": {"ref": "subject.id"}, "right": {"value": "blocked"}}}
                             ]
                           }
                         }
                         """)
                 .when()
-                .put("/v1/policies/p-write")
+                .put("/v1/apps/{app}/policies/p-write", APP)
                 .then()
                 .statusCode(400)
-                .body("code", equalTo("INVALID_POLICY"))
-                .body("invalidParams", notNullValue());
+                .body("code", equalTo("INVALID_POLICY"));
     }
 
     @Test
@@ -323,12 +446,12 @@ class PolicyWriteResourceTest {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201);
 
         String etag = given().when()
-                .get("/v1/policies/p-write")
+                .get("/v1/apps/{app}/policies/p-write", APP)
                 .then()
                 .statusCode(200)
                 .extract()
@@ -338,7 +461,7 @@ class PolicyWriteResourceTest {
                 .header("If-Match", etag)
                 .body(VALID_CONTENT_BODY)
                 .when()
-                .put("/v1/policies/p-write")
+                .put("/v1/apps/{app}/policies/p-write", APP)
                 .then()
                 .statusCode(200);
 
@@ -346,7 +469,7 @@ class PolicyWriteResourceTest {
                 .header("If-Match", etag)
                 .body(VALID_CONTENT_BODY)
                 .when()
-                .put("/v1/policies/p-write")
+                .put("/v1/apps/{app}/policies/p-write", APP)
                 .then()
                 .statusCode(412)
                 .body("code", equalTo("PRECONDITION_FAILED"));
@@ -360,7 +483,7 @@ class PolicyWriteResourceTest {
             roles = {ADMIN})
     void errorResponsesCarryProblemJsonContentType() {
         given().when()
-                .get("/v1/policies/ghost")
+                .get("/v1/apps/{app}/policies/ghost", APP)
                 .then()
                 .statusCode(404)
                 .contentType("application/problem+json")

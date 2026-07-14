@@ -17,6 +17,10 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
  * <p>Storage-agnostic and pure. Persistence-only concerns (the Mongo {@code _id} and the
  * {@code active} flag) are intentionally NOT part of this mapping — they live on the persistence
  * entity, not on the domain policy.
+ *
+ * <p>{@code app} is likewise not part of the content (ADR-026): it is the scoping coordinate, taken
+ * from the request path and stored on the head. A document that carries an {@code app} field is
+ * rejected — even if it agrees with the path — so that a body can never contradict the route.
  */
 public class PolicyDocumentMapper {
 
@@ -49,7 +53,6 @@ public class PolicyDocumentMapper {
         }
 
         Map<String, Object> doc = new LinkedHashMap<>();
-        doc.put(APP, policy.app());
         doc.put(POLICY_ID, policy.id());
         doc.put(VERSION, policy.version());
         doc.put(RESOURCE_TYPE, policy.resourceType());
@@ -61,12 +64,11 @@ public class PolicyDocumentMapper {
     }
 
     public Policy fromDocument(Map<String, Object> doc) {
-        String app = requireString(doc, APP);
-        if (app.isBlank()) {
-            throw new PolicyDocumentException("'" + APP + "' must not be blank");
+        if (doc.containsKey(APP)) {
+            throw new PolicyDocumentException(
+                    "'" + APP + "' must not be present in the body; it is determined by the path");
         }
         return new Policy(
-                app,
                 requireString(doc, POLICY_ID),
                 requireInt(doc, VERSION),
                 requireString(doc, RESOURCE_TYPE),

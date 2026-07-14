@@ -20,8 +20,8 @@ import io.restassured.http.ContentType;
 
 /**
  * Integration tests for the activation write-path: POST /{id}/activate and POST /{id}/deactivate
- * (ADR-020). Covers the conditional-write guards (ADR-018), 404 disambiguation, the ETag contract,
- * and the no-admin 403 guard.
+ * (ADR-020), nested under the app (ADR-026). Covers the conditional-write guards (ADR-018), 404
+ * disambiguation, the ETag contract, and the no-admin 403 guard.
  */
 @QuarkusTest
 class PolicyActivationResourceTest {
@@ -30,7 +30,6 @@ class PolicyActivationResourceTest {
 
     private static final String VALID_POLICY = """
             {
-              "app": "test-app",
               "policyId": "p-act",
               "version": 1,
               "resourceType": "document",
@@ -80,10 +79,11 @@ class PolicyActivationResourceTest {
                         {"version": 1}
                         """)
                 .when()
-                .post("/v1/policies/p-act/activate")
+                .post("/v1/apps/test-app/policies/p-act/activate")
                 .then()
                 .statusCode(200)
                 .header("ETag", notNullValue())
+                .body("app", equalTo("test-app"))
                 .body("policyId", equalTo("p-act"))
                 .body("activeVersion", equalTo(1))
                 .body("activeContent", notNullValue());
@@ -103,7 +103,7 @@ class PolicyActivationResourceTest {
                         {"version": 1}
                         """)
                 .when()
-                .post("/v1/policies/p-act/activate")
+                .post("/v1/apps/test-app/policies/p-act/activate")
                 .then()
                 .statusCode(200)
                 .extract()
@@ -126,7 +126,7 @@ class PolicyActivationResourceTest {
                         {"version": 1}
                         """)
                 .when()
-                .post("/v1/policies/p-act/activate")
+                .post("/v1/apps/test-app/policies/p-act/activate")
                 .then()
                 .statusCode(200)
                 .extract()
@@ -138,7 +138,7 @@ class PolicyActivationResourceTest {
                         {"version": 1}
                         """)
                 .when()
-                .post("/v1/policies/p-act/activate")
+                .post("/v1/apps/test-app/policies/p-act/activate")
                 .then()
                 .statusCode(200)
                 .extract()
@@ -161,7 +161,7 @@ class PolicyActivationResourceTest {
                         {"version": 1}
                         """)
                 .when()
-                .post("/v1/policies/p-act/activate")
+                .post("/v1/apps/test-app/policies/p-act/activate")
                 .then()
                 .statusCode(428)
                 .body("code", equalTo("PRECONDITION_REQUIRED"));
@@ -180,7 +180,7 @@ class PolicyActivationResourceTest {
                         {"version": 1}
                         """)
                 .when()
-                .post("/v1/policies/p-act/activate")
+                .post("/v1/apps/test-app/policies/p-act/activate")
                 .then()
                 .statusCode(412)
                 .body("code", equalTo("PRECONDITION_FAILED"))
@@ -199,7 +199,26 @@ class PolicyActivationResourceTest {
                         {"version": 1}
                         """)
                 .when()
-                .post("/v1/policies/ghost/activate")
+                .post("/v1/apps/test-app/policies/ghost/activate")
+                .then()
+                .statusCode(404)
+                .body("code", equalTo("POLICY_NOT_FOUND"));
+    }
+
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void activateInAnotherAppReturns404() {
+        createPolicy();
+
+        given().contentType(ContentType.JSON)
+                .header("If-Match", "\"0\"")
+                .body("""
+                        {"version": 1}
+                        """)
+                .when()
+                .post("/v1/apps/other-app/policies/p-act/activate")
                 .then()
                 .statusCode(404)
                 .body("code", equalTo("POLICY_NOT_FOUND"));
@@ -219,7 +238,7 @@ class PolicyActivationResourceTest {
                         {"version": 99}
                         """)
                 .when()
-                .post("/v1/policies/p-act/activate")
+                .post("/v1/apps/test-app/policies/p-act/activate")
                 .then()
                 .statusCode(404)
                 .body("code", equalTo("VERSION_NOT_FOUND"));
@@ -239,7 +258,7 @@ class PolicyActivationResourceTest {
                         {"changeReason": "no version field"}
                         """)
                 .when()
-                .post("/v1/policies/p-act/activate")
+                .post("/v1/apps/test-app/policies/p-act/activate")
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("BAD_REQUEST"));
@@ -254,7 +273,7 @@ class PolicyActivationResourceTest {
                         {"version": 1}
                         """)
                 .when()
-                .post("/v1/policies/p-act/activate")
+                .post("/v1/apps/test-app/policies/p-act/activate")
                 .then()
                 .statusCode(403)
                 .body("code", equalTo("FORBIDDEN"));
@@ -276,7 +295,7 @@ class PolicyActivationResourceTest {
                         {"version": 1}
                         """)
                 .when()
-                .post("/v1/policies/p-act/activate")
+                .post("/v1/apps/test-app/policies/p-act/activate")
                 .then()
                 .statusCode(200)
                 .extract()
@@ -285,10 +304,11 @@ class PolicyActivationResourceTest {
         given().contentType(ContentType.JSON)
                 .header("If-Match", etag2)
                 .when()
-                .post("/v1/policies/p-act/deactivate")
+                .post("/v1/apps/test-app/policies/p-act/deactivate")
                 .then()
                 .statusCode(200)
                 .header("ETag", notNullValue())
+                .body("app", equalTo("test-app"))
                 .body("policyId", equalTo("p-act"))
                 .body("activeVersion", nullValue())
                 .body("activeContent", nullValue());
@@ -308,7 +328,7 @@ class PolicyActivationResourceTest {
                         {"version": 1}
                         """)
                 .when()
-                .post("/v1/policies/p-act/activate")
+                .post("/v1/apps/test-app/policies/p-act/activate")
                 .then()
                 .statusCode(200)
                 .extract()
@@ -320,7 +340,7 @@ class PolicyActivationResourceTest {
                         {"changeReason": "retiring this version"}
                         """)
                 .when()
-                .post("/v1/policies/p-act/deactivate")
+                .post("/v1/apps/test-app/policies/p-act/deactivate")
                 .then()
                 .statusCode(200)
                 .body("activeVersion", nullValue());
@@ -337,7 +357,7 @@ class PolicyActivationResourceTest {
         String etag2 = given().contentType(ContentType.JSON)
                 .header("If-Match", etag)
                 .when()
-                .post("/v1/policies/p-act/deactivate")
+                .post("/v1/apps/test-app/policies/p-act/deactivate")
                 .then()
                 .statusCode(200)
                 .body("activeVersion", nullValue())
@@ -358,7 +378,7 @@ class PolicyActivationResourceTest {
 
         given().contentType(ContentType.JSON)
                 .when()
-                .post("/v1/policies/p-act/deactivate")
+                .post("/v1/apps/test-app/policies/p-act/deactivate")
                 .then()
                 .statusCode(428)
                 .body("code", equalTo("PRECONDITION_REQUIRED"));
@@ -374,7 +394,7 @@ class PolicyActivationResourceTest {
         given().contentType(ContentType.JSON)
                 .header("If-Match", "\"999\"")
                 .when()
-                .post("/v1/policies/p-act/deactivate")
+                .post("/v1/apps/test-app/policies/p-act/deactivate")
                 .then()
                 .statusCode(412)
                 .body("code", equalTo("PRECONDITION_FAILED"))
@@ -390,7 +410,23 @@ class PolicyActivationResourceTest {
         given().contentType(ContentType.JSON)
                 .header("If-Match", "\"0\"")
                 .when()
-                .post("/v1/policies/ghost/deactivate")
+                .post("/v1/apps/test-app/policies/ghost/deactivate")
+                .then()
+                .statusCode(404)
+                .body("code", equalTo("POLICY_NOT_FOUND"));
+    }
+
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void deactivateInAnotherAppReturns404() {
+        createPolicy();
+
+        given().contentType(ContentType.JSON)
+                .header("If-Match", "\"0\"")
+                .when()
+                .post("/v1/apps/other-app/policies/p-act/deactivate")
                 .then()
                 .statusCode(404)
                 .body("code", equalTo("POLICY_NOT_FOUND"));
@@ -402,7 +438,7 @@ class PolicyActivationResourceTest {
         given().contentType(ContentType.JSON)
                 .header("If-Match", "\"0\"")
                 .when()
-                .post("/v1/policies/p-act/deactivate")
+                .post("/v1/apps/test-app/policies/p-act/deactivate")
                 .then()
                 .statusCode(403)
                 .body("code", equalTo("FORBIDDEN"));
@@ -414,14 +450,14 @@ class PolicyActivationResourceTest {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/test-app/policies")
                 .then()
                 .statusCode(201);
     }
 
     private String headEtag() {
         return given().when()
-                .get("/v1/policies/p-act")
+                .get("/v1/apps/test-app/policies/p-act")
                 .then()
                 .statusCode(200)
                 .extract()

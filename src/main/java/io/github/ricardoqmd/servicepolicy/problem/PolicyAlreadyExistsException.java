@@ -4,8 +4,8 @@ public class PolicyAlreadyExistsException extends ProblemException {
 
     private final String policyId;
 
-    public PolicyAlreadyExistsException(String policyId) {
-        super(409, "POLICY_ALREADY_EXISTS", "A policy with id '" + policyId + "' already exists.");
+    public PolicyAlreadyExistsException(String app, String policyId) {
+        super(409, "POLICY_ALREADY_EXISTS", "A policy with id '" + policyId + "' already exists in app '" + app + "'.");
         this.policyId = policyId;
     }
 

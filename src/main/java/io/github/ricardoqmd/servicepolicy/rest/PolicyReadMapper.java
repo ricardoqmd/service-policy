@@ -44,7 +44,7 @@ public class PolicyReadMapper {
     public PolicyVersionSummary versionSummary(PolicyVersion version) {
         Policy content = version.content();
         return new PolicyVersionSummary(
-                content.id(), content.app(), content.version(), content.resourceType(), auditView(version.audit()));
+                content.id(), version.app(), content.version(), content.resourceType(), auditView(version.audit()));
     }
 
     public Map<String, Object> versionContent(PolicyVersion version) {

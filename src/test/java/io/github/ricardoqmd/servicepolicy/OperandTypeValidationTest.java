@@ -37,6 +37,8 @@ class OperandTypeValidationTest {
 
     private static final String ADMIN = "authz-admin";
 
+    private static final String APP = "test-app";
+
     @Inject
     PolicyLifecycleStore lifecycleStore;
 
@@ -62,7 +64,7 @@ class OperandTypeValidationTest {
         given().contentType(ContentType.JSON)
                 .body(policyBody("GT", "\"abc\""))
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("INVALID_POLICY"))
@@ -79,7 +81,7 @@ class OperandTypeValidationTest {
         given().contentType(ContentType.JSON)
                 .body(policyBody("GT", "\"10\""))
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("INVALID_POLICY"));
@@ -93,7 +95,7 @@ class OperandTypeValidationTest {
         given().contentType(ContentType.JSON)
                 .body(policyBody("LT", "true"))
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("INVALID_POLICY"))
@@ -108,7 +110,7 @@ class OperandTypeValidationTest {
         given().contentType(ContentType.JSON)
                 .body(policyBody("GT", "10"))
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201)
                 .body("policyId", equalTo("type-val-policy"));
@@ -122,7 +124,7 @@ class OperandTypeValidationTest {
         given().contentType(ContentType.JSON)
                 .body(policyBody("GTE", "10.5"))
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201);
     }
@@ -136,7 +138,7 @@ class OperandTypeValidationTest {
         given().contentType(ContentType.JSON)
                 .body(policyBodyWithRefRight("GT"))
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201);
     }
@@ -150,12 +152,12 @@ class OperandTypeValidationTest {
         given().contentType(ContentType.JSON)
                 .body(policyBody("GT", "5"))
                 .when()
-                .post("/v1/policies")
+                .post("/v1/apps/{app}/policies", APP)
                 .then()
                 .statusCode(201);
 
         String etag = given().when()
-                .get("/v1/policies/type-val-policy")
+                .get("/v1/apps/{app}/policies/{id}", APP, "type-val-policy")
                 .then()
                 .statusCode(200)
                 .extract()
@@ -165,7 +167,7 @@ class OperandTypeValidationTest {
                 .header("If-Match", etag)
                 .body(appendBody("LTE", "\"not-a-number\""))
                 .when()
-                .put("/v1/policies/type-val-policy")
+                .put("/v1/apps/{app}/policies/{id}", APP, "type-val-policy")
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("INVALID_POLICY"))
@@ -181,7 +183,6 @@ class OperandTypeValidationTest {
         // Request: clearance attribute arrives as a string "high" — non-numeric.
         // Expected: allowed=false (deny), NOT a 500.
         Policy policy = new Policy(
-                "test-app",
                 "dyn-type-policy",
                 1,
                 "doc",
@@ -192,20 +193,19 @@ class OperandTypeValidationTest {
                         "r",
                         Effect.PERMIT,
                         new Comparison(Operator.GT, new AttributeRef("subject.attr.clearance"), new Literal(5)))));
-        lifecycleStore.create(policy, "seed", null);
-        lifecycleStore.activate("dyn-type-policy", 1, 0L, "seed", null);
+        lifecycleStore.create(APP, policy, "seed", null);
+        lifecycleStore.activate(APP, "dyn-type-policy", 1, 0L, "seed", null);
 
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "doc:read",
                           "resource": {"type": "doc", "id": "d1"},
                           "subjectAttributes": {"clearance": "high"}
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/{app}/evaluate", APP)
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(false));
@@ -216,7 +216,6 @@ class OperandTypeValidationTest {
     void evaluateWithNumericAttributeOnGtPermits() {
         // Same policy — when clearance is a real number above the threshold, it should permit.
         Policy policy = new Policy(
-                "test-app",
                 "dyn-num-policy",
                 1,
                 "doc",
@@ -227,20 +226,19 @@ class OperandTypeValidationTest {
                         "r",
                         Effect.PERMIT,
                         new Comparison(Operator.GT, new AttributeRef("subject.attr.clearance"), new Literal(3)))));
-        lifecycleStore.create(policy, "seed", null);
-        lifecycleStore.activate("dyn-num-policy", 1, 0L, "seed", null);
+        lifecycleStore.create(APP, policy, "seed", null);
+        lifecycleStore.activate(APP, "dyn-num-policy", 1, 0L, "seed", null);
 
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "doc:read",
                           "resource": {"type": "doc", "id": "d1"},
                           "subjectAttributes": {"clearance": 5}
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/{app}/evaluate", APP)
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(true));
@@ -251,7 +249,6 @@ class OperandTypeValidationTest {
     private static String policyBody(String op, String rightValue) {
         return """
                 {
-                  "app": "test-app",
                   "policyId": "type-val-policy",
                   "version": 1,
                   "resourceType": "doc",
@@ -272,7 +269,6 @@ class OperandTypeValidationTest {
     private static String policyBodyWithRefRight(String op) {
         return """
                 {
-                  "app": "test-app",
                   "policyId": "type-val-policy",
                   "version": 1,
                   "resourceType": "doc",
@@ -294,7 +290,6 @@ class OperandTypeValidationTest {
         return """
                 {
                   "content": {
-                    "app": "test-app",
                     "policyId": "type-val-policy",
                     "version": 2,
                     "resourceType": "doc",

@@ -19,7 +19,7 @@ body. Everything else below is problem+json.
 
 |                      `code`                       | HTTP |                        When                        |
 |---------------------------------------------------|------|----------------------------------------------------|
-| [`POLICY_ALREADY_EXISTS`](#policy-already-exists) | 409  | Creating a policy whose id is taken                |
+| [`POLICY_ALREADY_EXISTS`](#policy-already-exists) | 409  | Creating a policy whose id is taken in this app    |
 | [`INVALID_POLICY`](#invalid-policy)               | 400  | The policy document failed validation              |
 | [`PRECONDITION_REQUIRED`](#precondition-required) | 428  | A conditional write arrived without `If-Match`     |
 | [`PRECONDITION_FAILED`](#precondition-failed)     | 412  | The `If-Match` ETag is stale                       |
@@ -33,13 +33,18 @@ body. Everything else below is problem+json.
 
 `POLICY_ALREADY_EXISTS` · **409 Conflict**
 
-**Meaning.** A policy already exists with the id you tried to create.
+**Meaning.** A policy already exists with the id you tried to create **in this
+application**. A policy is identified by `(app, policyId)` (ADR-026), so the same id
+in another application is a different policy and is created normally — this conflict
+is scoped to the app in the path.
 
-**Triggered by.** `POST /v1/policies` with a `policyId` that is already registered.
-Create is not an update; use the write endpoint to add a new version.
+**Triggered by.** `POST /v1/apps/{app}/policies` with a `policyId` that is already
+registered *in that app*. Create is not an update; use the write endpoint to add a
+new version.
 
-**Client should.** Treat as a naming conflict. Either choose a different id or, if
-the intent was to revise an existing policy, switch to appending a version.
+**Client should.** Treat as a naming conflict within the application. Either choose a
+different id or, if the intent was to revise the existing policy, switch to appending
+a version.
 
 ```json
 {
@@ -47,7 +52,7 @@ the intent was to revise an existing policy, switch to appending a version.
   "title": "Policy already exists",
   "status": 409,
   "code": "POLICY_ALREADY_EXISTS",
-  "detail": "A policy with id 'doc-access' already exists.",
+  "detail": "A policy with id 'doc-access' already exists in app 'nami'.",
   "policyId": "doc-access"
 }
 ```
@@ -62,7 +67,9 @@ the intent was to revise an existing policy, switch to appending a version.
 validation.
 
 **Triggered by.** `POST` or `PUT` of a policy whose body is malformed — a missing
-required field, an unknown operator, an ill-formed condition, and so on.
+required field, an unknown operator, an ill-formed condition, and so on. It also
+covers a body that carries an `app` field: the application is determined by the path
+(ADR-026), and a body that could contradict it is rejected rather than reconciled.
 
 **Client should.** Read `invalidParams` and surface each `field`/`reason` to the
 author. The list may contain one or more entries.
@@ -90,8 +97,9 @@ author. The list may contain one or more entries.
 **Meaning.** The write is conditional and you did not send the `If-Match` header,
 so it was refused rather than applied unconditionally.
 
-**Triggered by.** A mutating request on an existing policy (`PUT /v1/policies/{id}`,
-and the activation endpoints) sent without `If-Match`.
+**Triggered by.** A mutating request on an existing policy
+(`PUT /v1/apps/{app}/policies/{id}`, and the activation endpoints) sent without
+`If-Match`.
 
 **Client should.** `GET` the resource, read the `ETag` response header, and retry
 the write with `If-Match: "<etag>"`.
@@ -127,7 +135,7 @@ lost-update guard: it prevents silently overwriting another author's change.
   "title": "Precondition failed",
   "status": 412,
   "code": "PRECONDITION_FAILED",
-  "detail": "If-Match \"4\" does not match the current revision \"6\".",
+  "detail": "If-Match \"4\" does not match the current revision 6 of policy 'doc-access' in app 'nami'.",
   "policyId": "doc-access",
   "currentRevision": 6
 }
@@ -139,13 +147,17 @@ lost-update guard: it prevents silently overwriting another author's change.
 
 `POLICY_NOT_FOUND` · **404 Not Found**
 
-**Meaning.** No policy exists with the referenced id.
+**Meaning.** No policy exists with the referenced id **in the application named in
+the path**. Identity is `(app, policyId)` (ADR-026): a policy that exists in another
+application is not visible here, and addressing it through the wrong app yields this
+404 rather than someone else's policy.
 
-**Triggered by.** Any operation targeting a policy id that is not registered — for
-example `PUT`, `GET /v1/policies/{id}`, or the activation endpoints.
+**Triggered by.** Any operation targeting a policy id that is not registered in that
+app — for example `PUT`, `GET /v1/apps/{app}/policies/{id}`, or the activation
+endpoints.
 
-**Client should.** Verify the id. A create is required before the policy can be
-read or written.
+**Client should.** Verify both the app and the id. A create is required before the
+policy can be read or written.
 
 ```json
 {
@@ -153,7 +165,7 @@ read or written.
   "title": "Policy not found",
   "status": 404,
   "code": "POLICY_NOT_FOUND",
-  "detail": "No policy with id 'ghost'.",
+  "detail": "No policy with id 'ghost' in app 'nami'.",
   "policyId": "ghost"
 }
 ```
@@ -167,8 +179,9 @@ read or written.
 **Meaning.** The policy exists, but not the version number you referenced.
 
 **Triggered by.** Referencing a non-existent version — for example activating a
-version that was never appended, or `GET /v1/policies/{id}/versions/{version}` for
-a version outside the recorded range.
+version that was never appended, or `GET /v1/apps/{app}/policies/{id}/versions/{version}`
+for a version outside the recorded range. Versions are counted within `(app, policyId)`,
+so the same version number can exist in another app's policy of the same id.
 
 **Client should.** List the policy's versions to discover the valid range.
 
@@ -178,7 +191,7 @@ a version outside the recorded range.
   "title": "Version not found",
   "status": 404,
   "code": "VERSION_NOT_FOUND",
-  "detail": "Policy 'doc-access' has no version 7.",
+  "detail": "Policy 'doc-access' in app 'nami' has no version 7.",
   "policyId": "doc-access",
   "requestedVersion": 7
 }

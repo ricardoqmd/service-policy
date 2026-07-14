@@ -16,6 +16,9 @@ import io.restassured.http.ContentType;
  * persistence-backed evaluator. No policies are seeded here, so evaluations fall through to
  * the fail-safe default deny — proving the end-to-end wiring.
  *
+ * <p>The application scope is a path coordinate (ADR-026): requests go to
+ * {@code /v1/apps/{app}/...} and no request body carries {@code app}.
+ *
  * <p>Uses {@code @TestSecurity} to supply the authenticated identity (ADR-013).
  * Tests without {@code @TestSecurity} verify that unauthenticated requests are rejected.
  */
@@ -28,13 +31,12 @@ class EvaluationResourceTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d1"}
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/test-app/evaluate")
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(false))
@@ -50,14 +52,13 @@ class EvaluationResourceTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d1", "attributes": {"area": "A"}},
                           "subjectAttributes": {"area": "A"}
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/test-app/evaluate")
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(false));
@@ -73,7 +74,7 @@ class EvaluationResourceTest {
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/test-app/evaluate")
                 .then()
                 .statusCode(401);
     }
@@ -89,7 +90,7 @@ class EvaluationResourceTest {
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/test-app/evaluate")
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("BAD_REQUEST"));
@@ -105,7 +106,27 @@ class EvaluationResourceTest {
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/test-app/evaluate")
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    @Test
+    @TestSecurity(user = "test-user")
+    void evaluateWithAppInBodyReturns400() {
+        // The app is the path coordinate (ADR-026); a body that still claims one is rejected
+        // rather than silently reconciled with the route.
+        given().contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "app": "test-app",
+                          "action": "document:read",
+                          "resource": {"type": "document", "id": "d1"}
+                        }
+                        """)
+                .when()
+                .post("/v1/apps/test-app/evaluate")
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("BAD_REQUEST"));
@@ -117,14 +138,13 @@ class EvaluationResourceTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d1"},
                           "subject": "test-user"
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/test-app/evaluate")
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(false));
@@ -136,14 +156,13 @@ class EvaluationResourceTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d1"},
                           "subject": "other-user"
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/test-app/evaluate")
                 .then()
                 .statusCode(403)
                 .body("code", equalTo("FORBIDDEN"));
@@ -157,14 +176,13 @@ class EvaluationResourceTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d1"},
                           "subject": "other-user"
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/test-app/evaluate")
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(false));
@@ -178,19 +196,17 @@ class EvaluationResourceTest {
                         {
                           "requests": [
                             {
-                              "app": "test-app",
                               "action": "document:read",
                               "resource": {"type": "document", "id": "d1"}
                             },
                             {
-                              "app": "test-app",
                               "action": "document:read"
                             }
                           ]
                         }
                         """)
                 .when()
-                .post("/v1/evaluate/batch")
+                .post("/v1/apps/test-app/evaluate/batch")
                 .then()
                 .statusCode(200)
                 .body("decisions", hasSize(2))
@@ -206,7 +222,7 @@ class EvaluationResourceTest {
         given().contentType(ContentType.JSON)
                 .body("{}")
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/test-app/evaluate")
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("BAD_REQUEST"));
@@ -224,7 +240,7 @@ class EvaluationResourceTest {
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/test-app/evaluate")
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("BAD_REQUEST"));
@@ -242,7 +258,7 @@ class EvaluationResourceTest {
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/test-app/evaluate")
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("BAD_REQUEST"));
@@ -250,17 +266,19 @@ class EvaluationResourceTest {
 
     @Test
     @TestSecurity(user = "test-user")
-    void batchWithMissingAppReturns400() {
+    void batchWithAppInAnItemReturns400() {
+        // A single item claiming its own app fails the whole batch: the scope is the path's
+        // (ADR-026), and no item may override it.
         given().contentType(ContentType.JSON)
                 .body("""
                         {
                           "requests": [
                             {
-                              "app": "test-app",
                               "action": "document:read",
                               "resource": {"type": "document", "id": "d1"}
                             },
                             {
+                              "app": "other-app",
                               "action": "document:read",
                               "resource": {"type": "document", "id": "d2"}
                             }
@@ -268,7 +286,7 @@ class EvaluationResourceTest {
                         }
                         """)
                 .when()
-                .post("/v1/evaluate/batch")
+                .post("/v1/apps/test-app/evaluate/batch")
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("BAD_REQUEST"));
@@ -288,7 +306,7 @@ class EvaluationResourceTest {
                         }
                         """)
                 .when()
-                .post("/v1/evaluate/batch")
+                .post("/v1/apps/test-app/evaluate/batch")
                 .then()
                 .statusCode(401);
     }
@@ -296,12 +314,12 @@ class EvaluationResourceTest {
     @Test
     @TestSecurity(user = "test-user")
     void permissionsReturnsEmptyListForNow() {
-        given().queryParam("app", "rh")
-                .when()
-                .get("/v1/permissions")
+        given().when()
+                .get("/v1/apps/rh/permissions")
                 .then()
                 .statusCode(200)
                 .body("subject", equalTo("test-user"))
+                .body("app", equalTo("rh"))
                 .body("permissions", hasSize(0))
                 .body("policyVersion", notNullValue())
                 .body("evaluatedAt", notNullValue());
@@ -309,7 +327,9 @@ class EvaluationResourceTest {
 
     @Test
     @TestSecurity(user = "test-user")
-    void permissionsWithoutAppReturns400() {
-        given().when().get("/v1/permissions").then().statusCode(400).body("code", equalTo("BAD_REQUEST"));
+    void permissionsWithoutAppInPathIsNotRouted() {
+        // Was: "?app= missing → 400". Under ADR-026 the app is a path segment, so an app-less
+        // permissions request is not a bad request — it is not a route at all.
+        given().when().get("/v1/permissions").then().statusCode(404);
     }
 }

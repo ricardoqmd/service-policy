@@ -32,14 +32,20 @@ import io.quarkus.test.security.TestSecurity;
 
 /**
  * HTTP tests for the policy read endpoints (ADR-016 / ADR-017): the collection envelope, lean vs
- * {@code ?view=full} projection, single-resource shapes, and the 403/404/400 guards. Uses
- * {@code @TestSecurity} with the {@code authz-admin} role to satisfy the admin marker (ADR-013);
- * a request with an authenticated-but-unprivileged identity verifies the 403 guard.
+ * {@code ?view=full} projection, single-resource shapes, and the 403/404/400 guards. Every route is
+ * nested under its application (ADR-026), so the app is a path coordinate rather than a body or
+ * query field. Uses {@code @TestSecurity} with the {@code authz-admin} role to satisfy the admin
+ * marker (ADR-013); a request with an authenticated-but-unprivileged identity verifies the 403
+ * guard.
  */
 @QuarkusTest
 class PolicyReadResourceTest {
 
     private static final String ADMIN = "authz-admin";
+
+    private static final String APP = "test-app";
+
+    private static final String POLICIES = "/v1/apps/" + APP + "/policies";
 
     @Inject
     PolicyHeadRepository headRepository;
@@ -68,11 +74,12 @@ class PolicyReadResourceTest {
         seedHead("p-a", 1, 1, policy("p-a", 1));
 
         given().when()
-                .get("/v1/policies")
+                .get(POLICIES)
                 .then()
                 .statusCode(200)
                 .body("data.size()", equalTo(1))
                 .body("data[0].policyId", equalTo("p-a"))
+                .body("data[0].app", equalTo(APP))
                 .body("data[0].activeVersion", equalTo(1))
                 .body("data[0].activeContent", nullValue()) // lean: no content
                 .body("pagination.page", equalTo(1))
@@ -90,7 +97,7 @@ class PolicyReadResourceTest {
 
         given().queryParam("view", "full")
                 .when()
-                .get("/v1/policies")
+                .get(POLICIES)
                 .then()
                 .statusCode(200)
                 .body("data[0].activeContent.policyId", equalTo("p-a"))
@@ -105,10 +112,11 @@ class PolicyReadResourceTest {
         seedHead("p-a", 1, 7, policy("p-a", 1));
 
         given().when()
-                .get("/v1/policies/p-a")
+                .get(POLICIES + "/p-a")
                 .then()
                 .statusCode(200)
                 .body("policyId", equalTo("p-a"))
+                .body("app", equalTo(APP))
                 .body("revision", equalTo(7))
                 .body("activeContent", notNullValue())
                 .body("audit.createdBy", equalTo("u-1"));
@@ -119,7 +127,25 @@ class PolicyReadResourceTest {
             user = "admin-user",
             roles = {ADMIN})
     void getByIdIsNotFoundForUnknownPolicy() {
-        given().when().get("/v1/policies/nope").then().statusCode(404).body("code", equalTo("POLICY_NOT_FOUND"));
+        given().when().get(POLICIES + "/nope").then().statusCode(404).body("code", equalTo("POLICY_NOT_FOUND"));
+    }
+
+    /**
+     * A policy is identified by {@code (app, policyId)} (ADR-026): the very same id, seeded in
+     * another app, is not visible through this app's route.
+     */
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void getByIdIsNotFoundForAPolicyOfAnotherApp() {
+        seedHead("p-a", 1, 1, policy("p-a", 1));
+
+        given().when()
+                .get("/v1/apps/other-app/policies/p-a")
+                .then()
+                .statusCode(404)
+                .body("code", equalTo("POLICY_NOT_FOUND"));
     }
 
     @Test
@@ -132,11 +158,12 @@ class PolicyReadResourceTest {
         seedVersion("p-a", 2);
 
         given().when()
-                .get("/v1/policies/p-a/versions")
+                .get(POLICIES + "/p-a/versions")
                 .then()
                 .statusCode(200)
                 .body("data.size()", equalTo(2))
                 .body("data[0].version", equalTo(2))
+                .body("data[0].app", equalTo(APP))
                 .body("data[1].version", equalTo(1))
                 .body("pagination.totalElements", equalTo(2));
     }
@@ -147,7 +174,7 @@ class PolicyReadResourceTest {
             roles = {ADMIN})
     void listVersionsIsNotFoundWhenPolicyUnknown() {
         given().when()
-                .get("/v1/policies/nope/versions")
+                .get(POLICIES + "/nope/versions")
                 .then()
                 .statusCode(404)
                 .body("code", equalTo("POLICY_NOT_FOUND"));
@@ -162,12 +189,13 @@ class PolicyReadResourceTest {
         seedVersion("p-a", 1);
 
         given().when()
-                .get("/v1/policies/p-a/versions/1")
+                .get(POLICIES + "/p-a/versions/1")
                 .then()
                 .statusCode(200)
                 .body("policyId", equalTo("p-a")) // bare content, no envelope
                 .body("version", equalTo(1))
-                .body("resourceType", equalTo("document"));
+                .body("resourceType", equalTo("document"))
+                .body("app", nullValue()); // the app is a coordinate, never part of the content
     }
 
     @Test
@@ -179,7 +207,7 @@ class PolicyReadResourceTest {
         seedVersion("p-a", 1);
 
         given().when()
-                .get("/v1/policies/p-a/versions/99")
+                .get(POLICIES + "/p-a/versions/99")
                 .then()
                 .statusCode(404)
                 .body("code", equalTo("VERSION_NOT_FOUND"));
@@ -192,7 +220,7 @@ class PolicyReadResourceTest {
     void rejectsInvalidPaging() {
         given().queryParam("size", 999)
                 .when()
-                .get("/v1/policies")
+                .get(POLICIES)
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("BAD_REQUEST"));
@@ -201,14 +229,13 @@ class PolicyReadResourceTest {
     @Test
     @TestSecurity(user = "plain-user")
     void rejectsCallerWithoutAdminMarker() {
-        given().when().get("/v1/policies").then().statusCode(403).body("code", equalTo("FORBIDDEN"));
+        given().when().get(POLICIES).then().statusCode(403).body("code", equalTo("FORBIDDEN"));
     }
 
     // --- seeding helpers -----------------------------------------------------
 
     private Policy policy(String id, int version) {
         return new Policy(
-                "test-app",
                 id,
                 version,
                 "document",
@@ -233,7 +260,7 @@ class PolicyReadResourceTest {
     private void seedHead(String policyId, Integer activeVersion, long revision, Policy activeContent) {
         PolicyHeadDocument doc = new PolicyHeadDocument();
         doc.policyId = policyId;
-        doc.app = "test-app";
+        doc.app = APP;
         doc.resourceType = "document";
         doc.activeVersion = activeVersion;
         doc.revision = revision;
@@ -245,6 +272,7 @@ class PolicyReadResourceTest {
     private void seedVersion(String policyId, int version) {
         PolicyVersionDocument doc = new PolicyVersionDocument();
         doc.policyId = policyId;
+        doc.app = APP; // part of the version's identity (ADR-026)
         doc.version = version;
         doc.content = new Document(contentMapper.toDocument(policy(policyId, version)));
         doc.audit = audit("v" + version);

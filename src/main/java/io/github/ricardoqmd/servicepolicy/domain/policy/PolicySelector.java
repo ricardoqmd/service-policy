@@ -11,17 +11,16 @@ import io.github.ricardoqmd.servicepolicy.domain.model.AuthorizationRequest;
 public final class PolicySelector {
 
     /**
-     * @param policies all candidate policies (e.g. the active set).
+     * @param policies all candidate policies for the request's app (the active set loaded by
+     *     {@code PolicyLifecycleStore#activePoliciesFor}, which scopes by app before we see them —
+     *     the policy content itself no longer carries an app, ADR-026).
      * @param request  the authorization request.
      * @return the subset that governs the request's resource type and verb.
      */
     public List<Policy> select(List<Policy> policies, AuthorizationRequest request) {
         String verb = verbOf(request.action());
         String resourceType = request.resource().type();
-        String app = request.app();
-        return policies.stream()
-                .filter(p -> p.appliesTo(app, resourceType, verb))
-                .toList();
+        return policies.stream().filter(p -> p.appliesTo(resourceType, verb)).toList();
     }
 
     /** Extracts the verb from an action in {@code type:verb} format. */

@@ -1,6 +1,7 @@
 package io.github.ricardoqmd.servicepolicy.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
@@ -23,7 +24,6 @@ class PolicyDocumentMapperTest {
 
     private Policy documentReadAccess() {
         return new Policy(
-                "test-app",
                 "document-read-access",
                 1,
                 "document",
@@ -54,7 +54,7 @@ class PolicyDocumentMapperTest {
     @Test
     void documentShape() {
         Map<String, Object> doc = mapper.toDocument(documentReadAccess());
-        assertEquals("test-app", doc.get("app"));
+        assertFalse(doc.containsKey("app"), "app is determined by the path, not the body (ADR-026)");
         assertEquals("document-read-access", doc.get("policyId"));
         assertEquals(1, doc.get("version"));
         assertEquals("document", doc.get("resourceType"));
@@ -64,10 +64,19 @@ class PolicyDocumentMapperTest {
         assertEquals(2, ((List<?>) doc.get("rules")).size());
     }
 
+    /** ADR-026: an app-free document is the only valid form; it must map back cleanly. */
     @Test
-    void missingAppThrows() {
+    void documentWithoutAppIsAccepted() {
         Map<String, Object> doc = mapper.toDocument(documentReadAccess());
-        doc.remove("app");
+        assertFalse(doc.containsKey("app"));
+        assertEquals(documentReadAccess(), mapper.fromDocument(doc));
+    }
+
+    /** ADR-026: the body must never carry the app — the path determines it, so a body app is rejected. */
+    @Test
+    void presentAppThrows() {
+        Map<String, Object> doc = mapper.toDocument(documentReadAccess());
+        doc.put("app", "test-app");
         assertThrows(PolicyDocumentException.class, () -> mapper.fromDocument(doc));
     }
 

@@ -16,11 +16,12 @@ public interface PolicyEvaluator {
     /**
      * Evaluates a single authorization request.
      *
+     * @param app     the application scope, from the request path (ADR-026).
      * @param subject the resolved subject identifier (from JWT).
      * @param request the evaluation request from the PEP.
      * @return the authorization decision.
      */
-    Decision evaluate(String subject, EvaluationRequest request);
+    Decision evaluate(String app, String subject, EvaluationRequest request);
 
     /**
      * Returns all actions the subject is permitted to perform in the given application context.
