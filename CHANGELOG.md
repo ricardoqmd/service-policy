@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/ricardoqmd/service-policy/compare/v0.2.4...v0.3.0) (2026-07-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* all v1 routes move under /v1/apps/{app}/ and `app` must not be sent in request bodies (POST /v1/policies → POST /v1/apps/{app}/policies; POST /v1/evaluate → POST /v1/apps/{app}/evaluate; GET /v1/permissions?app= → GET /v1/apps/{app}/permissions). GET /v1/policies remains as a read-only cross-app catalogue.
+
+### Features
+
+* composite policy identity (app, policyId) with app-nested routes ([#130](https://github.com/ricardoqmd/service-policy/issues/130)) ([8fbe47e](https://github.com/ricardoqmd/service-policy/commit/8fbe47ee8af88b810eea8030a129870e31efd35e))
+
 ## [0.2.4](https://github.com/ricardoqmd/service-policy/compare/v0.2.3...v0.2.4) (2026-07-14)
 
 
