@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/ricardoqmd/service-policy/compare/v0.2.3...v0.2.4) (2026-07-14)
+
+
+### Documentation
+
+* add ADR-026 composite policy identity and app-nested routes ([#127](https://github.com/ricardoqmd/service-policy/issues/127)) ([f1e718a](https://github.com/ricardoqmd/service-policy/commit/f1e718a54979489aca27b3fc58ad1590e7287cb8))
+
 ## [0.2.3](https://github.com/ricardoqmd/service-policy/compare/v0.2.2...v0.2.3) (2026-07-13)
 
 
