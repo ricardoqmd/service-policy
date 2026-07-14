@@ -1,15 +1,16 @@
 ### ============================================================================
 ### service-policy — EVALUATION endpoints in detail
-###   POST /v1/evaluate        single request  → Decision
-###   POST /v1/evaluate/batch  batch requests  → { decisions: [Decision, …] }
-###   GET  /v1/permissions      subject + ?app  → cacheable flat permission list
+###   POST /v1/apps/{app}/evaluate        single request  → Decision
+###   POST /v1/apps/{app}/evaluate/batch  batch requests  → { decisions: [Decision, …] }
+###   GET  /v1/apps/{app}/permissions      subject scope  → cacheable permission list
 ###
-### Companion to lifecycle-walkthrough.http. Assumes an ACTIVE policy exists (run
-### steps 1–7 of the lifecycle file first).
+### Companion to lifecycle-walkthrough.http. Assumes an ACTIVE policy exists in app
+### "rh" (run steps 1–7 of the lifecycle file first).
 ###
-### ⚠️ `app` IS REQUIRED on every evaluation request (ADR-024). Evaluation is scoped
-###    by (app, resourceType): a policy of one app can NEVER decide a request of
-###    another. Missing app → 400 BAD_REQUEST (on /evaluate AND on every batch item).
+### ⚠️ THE APP IS IN THE PATH (ADR-026), never in the body. Evaluation is scoped by
+###    (app, resourceType): a policy of one app can NEVER decide a request of another.
+###    Sending "app" in the body → 400 BAD_REQUEST (on /evaluate AND on every batch item),
+###    even if it matches the path — the field is rejected for existing at all.
 ###
 ### Auth: {{jwt}} = any valid authenticated token. Subject is resolved from the JWT
 ### (ADR-013). An explicit "subject" in the body → delegated query (needs the
@@ -21,10 +22,9 @@
 
 
 ### ============================================================================
-### A) POST /v1/evaluate  — single authorization request → Decision
+### A) POST /v1/apps/{app}/evaluate  — single authorization request → Decision
 ### ============================================================================
-### REQUEST BODY (EvaluationRequest):
-###   app               (REQUIRED)  the application the PEP acts for (ADR-024)
+### REQUEST BODY (EvaluationRequest) — NOTE: no `app` field.
 ###   action            (required)  "resource:verb", e.g. "document:read"
 ###   resource          (required)  { type (required), id, attributes: {…} }
 ###   context           (optional)  runtime attributes, e.g. {"emergency": true}
@@ -33,15 +33,15 @@
 ###
 ### RESPONSE (Decision), HTTP 200 for a valid request:
 ###   { allowed, reason, decisionId, policyVersion, obligations: [] }
-### 400 if app, action or resource.type is blank. Never 500 on operand type (ADR-023).
+### 400 if action or resource.type is blank, or if `app` is present in the body.
+### Never 500 on operand type (ADR-023).
 
 ### A1) PERMIT — subject is an assignee
-POST {{host}}/v1/evaluate
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "action": "document:read",
   "resource": { "type": "document", "id": "d1", "attributes": { "assignees": ["test-user"] } }
 }
@@ -57,12 +57,11 @@ Content-Type: application/json
 
 
 ### A2) PERMIT — with subjectAttributes (area-scope rule)
-POST {{host}}/v1/evaluate
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "action": "document:read",
   "resource": { "type": "document", "id": "d2", "attributes": { "area": "A" } },
   "subjectAttributes": { "area": "A" }
@@ -72,12 +71,11 @@ Content-Type: application/json
 
 
 ### A3) DENY — default deny (nothing matches)
-POST {{host}}/v1/evaluate
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "action": "document:read",
   "resource": { "type": "document", "id": "d4", "attributes": { "assignees": ["someone-else"], "area": "B" } },
   "subjectAttributes": { "area": "A" }
@@ -86,29 +84,26 @@ Content-Type: application/json
 ### EXPECTED  200 OK  →  allowed: false, policyVersion: "2"
 
 
-### A4) ISOLATION (ADR-024) — same request, different app → DENY
-### The rh policy is invisible to app "nami". Only nami's own policies apply.
-POST {{host}}/v1/evaluate
+### A4) ISOLATION (ADR-024/026) — same body, different app in the PATH → DENY
+POST {{host}}/v1/apps/nami/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "nami",
   "action": "document:read",
   "resource": { "type": "document", "id": "d1", "attributes": { "assignees": ["test-user"] } }
 }
 
 ### EXPECTED  200 OK  →  allowed: FALSE
-### A policy of one app can never decide a request of another. No wildcard, no global.
+### The rh policy is invisible to app nami. Only the path decides the scope.
 
 
 ### A5) DELEGATED query — explicit "subject" (caller needs the delegation marker)
-POST {{host}}/v1/evaluate
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "action": "document:read",
   "resource": { "type": "document", "id": "d5" },
   "subject": "user-x"
@@ -118,26 +113,28 @@ Content-Type: application/json
 ###           403 FORBIDDEN (problem+json) if it does not (ADR-013)
 
 
-### A6) 400 — missing `app` (ADR-024: required)
-POST {{host}}/v1/evaluate
-Authorization: {{auth}}
-Content-Type: application/json
-
-{
-  "action": "document:read",
-  "resource": { "type": "document", "id": "d1" }
-}
-
-### EXPECTED  400  code: "BAD_REQUEST"  →  "app must not be blank."
-
-
-### A7) 400 — resource.type blank
-POST {{host}}/v1/evaluate
+### A6) 400 — `app` present in the body (ADR-026)
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
   "app": "rh",
+  "action": "document:read",
+  "resource": { "type": "document", "id": "d1" }
+}
+
+### EXPECTED  400  code: "BAD_REQUEST"
+### The field is rejected for EXISTING, not for disagreeing — a body value can never
+### silently override the path.
+
+
+### A7) 400 — resource.type blank
+POST {{host}}/v1/apps/rh/evaluate
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
   "action": "document:read",
   "resource": { "id": "d1" }
 }
@@ -146,14 +143,13 @@ Content-Type: application/json
 
 
 ### A8) DENY (not 500) — runtime type mismatch on an ordering operator (ADR-023)
-### If the active policy has e.g.  GT subject.attr.clearance vs 5,  and clearance
-### arrives as a non-number, the comparison does NOT hold → deny. Never a 500.
-POST {{host}}/v1/evaluate
+### If the active policy has e.g. GT subject.attr.clearance vs 5, and clearance arrives
+### as a non-number, the comparison does NOT hold → deny. Never a 500.
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "action": "document:read",
   "resource": { "type": "document", "id": "d6" },
   "subjectAttributes": { "clearance": "high" }
@@ -163,28 +159,28 @@ Content-Type: application/json
 
 
 ### ============================================================================
-### B) POST /v1/evaluate/batch  — batch → { decisions: [Decision, …] }
+### B) POST /v1/apps/{app}/evaluate/batch  — batch → { decisions: [Decision, …] }
 ### ============================================================================
 ### REQUEST BODY (BatchEvaluationRequest):  { "requests": [ EvaluationRequest, … ] }
 ### RESPONSE (BatchEvaluationResult):        { "decisions": [ Decision, … ] }
 ###   Results are in the SAME ORDER as the input requests.
-###   ⚠️ EVERY item needs `app` (ADR-024). An item without it fails the WHOLE batch
-###      with 400 — it does NOT return a silent deny.
+###   ⚠️ ALL items share the app of the PATH — an item cannot choose its own.
+###   ⚠️ No item may carry `app` in its body → 400 for the WHOLE batch.
 ###   A delegation violation on ANY item fails the whole batch with 403.
 
-### B1) Batch — three decisions at once
-POST {{host}}/v1/evaluate/batch
+### B1) Batch — three decisions at once, all in app "rh"
+POST {{host}}/v1/apps/rh/evaluate/batch
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
   "requests": [
-    { "app": "rh", "action": "document:read",
+    { "action": "document:read",
       "resource": { "type": "document", "id": "d1", "attributes": { "assignees": ["test-user"] } } },
-    { "app": "rh", "action": "document:read",
+    { "action": "document:read",
       "resource": { "type": "document", "id": "d4", "attributes": { "area": "B" } },
       "subjectAttributes": { "area": "A" } },
-    { "app": "rh", "action": "document:read",
+    { "action": "document:read",
       "resource": { "type": "document", "id": "d2", "attributes": { "area": "A" } },
       "subjectAttributes": { "area": "A" } }
   ]
@@ -199,51 +195,36 @@ Content-Type: application/json
 ###   ]
 ### }
 ### (decisions[i] corresponds to requests[i])
+###
+### NOTE: to evaluate across apps you make one batch call PER app — a batch is scoped
+### to the app in its path.
 
 
-### B2) Batch across apps — each item is scoped to its own app (ADR-024)
-POST {{host}}/v1/evaluate/batch
+### B2) 400 — an item carrying `app` fails the whole batch
+POST {{host}}/v1/apps/rh/evaluate/batch
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
   "requests": [
-    { "app": "rh",   "action": "document:read",
-      "resource": { "type": "document", "id": "d1", "attributes": { "assignees": ["test-user"] } } },
-    { "app": "nami", "action": "document:read",
-      "resource": { "type": "document", "id": "d1", "attributes": { "assignees": ["test-user"] } } }
-  ]
-}
-
-### EXPECTED  200 OK  →  decisions[0].allowed = true  (rh policy applies)
-###                      decisions[1].allowed = false (rh policy invisible to nami)
-
-
-### B3) 400 — an item without `app` fails the whole batch
-POST {{host}}/v1/evaluate/batch
-Authorization: {{auth}}
-Content-Type: application/json
-
-{
-  "requests": [
-    { "app": "rh", "action": "document:read",
-      "resource": { "type": "document", "id": "d1" } },
     { "action": "document:read",
+      "resource": { "type": "document", "id": "d1" } },
+    { "app": "rh",
+      "action": "document:read",
       "resource": { "type": "document", "id": "d2" } }
   ]
 }
 
-### EXPECTED  400  code: "BAD_REQUEST"  →  "app must not be blank."
+### EXPECTED  400  code: "BAD_REQUEST"
 ### The whole batch fails; there is no partial result and no silent deny.
 
 
 ### ============================================================================
-### C) GET /v1/permissions  — cacheable flat permission list for subject + ?app
+### C) GET /v1/apps/{app}/permissions  — cacheable flat permission list
 ### ============================================================================
-### QUERY PARAMS:
-###   app  (REQUIRED)  application context; 400 if missing/blank
-### Subject is resolved from the JWT (self only; the delegated form is deferred to
-### its own ADR).
+### The app is in the PATH (the old ?app= query param is gone, ADR-026).
+### Subject is resolved from the JWT (self only; the delegated form is deferred to its
+### own ADR).
 ###
 ### RESPONSE (PermissionsResponse):
 ###   { subject, app, permissions: [ "resource:verb", … ], policyVersion, evaluatedAt }
@@ -251,11 +232,11 @@ Content-Type: application/json
 ### policies change → use it as a cache key / invalidation signal.
 ###
 ### NOTE: today `permissions` returns an empty list (option A); the bulk
-### permission-listing mechanism is a separate future ADR. The CONTRACT below is
-### stable even though the list is currently empty.
+### permission-listing mechanism is a separate future ADR. The CONTRACT is stable even
+### though the list is currently empty.
 
-### C1) permissions for app "rh"
-GET {{host}}/v1/permissions?app=rh
+### C1) permissions in app "rh"
+GET {{host}}/v1/apps/rh/permissions
 Authorization: {{auth}}
 
 ### EXPECTED  200 OK
@@ -264,19 +245,12 @@ Authorization: {{auth}}
 ###   "app": "rh",
 ###   "permissions": [],                 ← currently empty (option A); contract stable
 ###   "policyVersion": "2",
-###   "evaluatedAt": "2026-07-13T…Z"
+###   "evaluatedAt": "2026-07-14T…Z"
 ### }
 
 
-### C2) 400 — missing 'app' query parameter
-GET {{host}}/v1/permissions
-Authorization: {{auth}}
-
-### EXPECTED  400  (problem+json)  →  "'app' query parameter must not be blank."
-
-
-### C3) 401 — no token (unauthenticated)
-GET {{host}}/v1/permissions?app=rh
+### C2) 401 — no token (unauthenticated)
+GET {{host}}/v1/apps/rh/permissions
 
 ### EXPECTED  401  (OIDC challenge, no problem+json body)
 
@@ -284,17 +258,18 @@ GET {{host}}/v1/permissions?app=rh
 ### ============================================================================
 ### FIELD REFERENCE
 ### ----------------------------------------------------------------------------
-### EvaluationRequest { app*, action*, resource*, context?, subjectAttributes?, subject? }
-###                     (* = required;  app added by ADR-024)
+### EvaluationRequest { action*, resource*, context?, subjectAttributes?, subject? }
+###                     (* = required.  NO `app` — it comes from the path, ADR-026)
 ### ResourceRef       { type*, id?, attributes?: {…} }
 ### Decision          { allowed, reason, decisionId, policyVersion, obligations: [Obligation] }
-### BatchEvaluationRequest { requests: [EvaluationRequest] }   ← every item needs app
+### BatchEvaluationRequest { requests: [EvaluationRequest] }   ← all share the path's app
 ### BatchEvaluationResult  { decisions: [Decision] }           ← same order as requests
 ### PermissionsResponse    { subject, app, permissions: [String], policyVersion, evaluatedAt }
 ###
 ### Attribute paths in conditions: subject.id | subject.attr.* | resource.type |
 ###   resource.id | resource.attr.* | context.*
 ###
-### SCOPING (ADR-024): selection is (app, resourceType, verb). resourceType is a
-### per-app namespace — two apps may both define "document" and never collide.
+### SCOPING (ADR-024/026): selection is (app, resourceType, verb); the app comes from
+### the path. resourceType is a per-app namespace — two apps may both define "document"
+### and never collide.
 ### ============================================================================

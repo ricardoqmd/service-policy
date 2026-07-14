@@ -7,19 +7,21 @@
 ### Swagger UI: http://localhost:8080/q/swagger-ui   OpenAPI: /q/openapi
 ###
 ### Tokens (ADR-013):
-###   {{admin_jwt}} — token whose role/scope satisfies the admin marker
-###                   (default role "authz-admin"). Required for all /v1/policies* writes.
-###   {{jwt}}       — any valid authenticated token. Used for /v1/evaluate.
+###   {{admin_jwt}} — token satisfying the admin marker (default role "authz-admin").
+###                   Required for all policy writes.
+###   {{jwt}}       — any valid authenticated token. Used for evaluation.
 ###   See "How to obtain tokens" at the bottom.
 ###
 ### KEY CONCEPTS you'll exercise:
-###   - `app` is REQUIRED (ADR-024). A policy belongs to exactly one application, and
-###     evaluation is scoped by (app, resourceType): a policy of app-a can NEVER decide
-###     a request of app-b. No wildcard, no "global" scope.
-###     `resourceType` is a per-app namespace — use "document", NOT "rh:document".
-###   - Create leaves the policy INACTIVE. It is NOT evaluable until you activate it.
+###   - Everything is nested under the application: /v1/apps/{app}/… (ADR-026).
+###     The PATH is the single source of scope — `app` must NOT appear in any request
+###     body (sending it → 400, even if it matches the path).
+###   - Identity is COMPOSITE (app, policyId): "doc-access" can exist in `rh` AND in
+###     `nami` at the same time. They are two different policies.
+###   - `resourceType` is a per-app namespace: use "document", never "rh:document".
+###   - Create leaves the policy INACTIVE. It is NOT evaluable until activated.
 ###   - Versions are append-only (PUT adds v2, v3…); you activate an EXPLICIT version.
-###   - Writes are conditional: they need If-Match: "<revision>" (the ETag from a GET).
+###   - Writes are conditional: If-Match: "<revision>" (the ETag from a GET).
 ###       Stale ETag → 412 ; missing If-Match → 428.
 ###   - The listing shows ALL lifecycle states by default (ADR-025); ?status= filters.
 ###   - Errors are RFC 9457 application/problem+json (see docs/ERRORS.md).
@@ -31,14 +33,14 @@
 
 
 ### ----------------------------------------------------------------------------
-### 1) CREATE a policy  →  201 Created, INACTIVE
+### 1) CREATE a policy in app "rh"  →  201 Created, INACTIVE
 ### ----------------------------------------------------------------------------
-POST {{host}}/v1/policies
+### Note: NO "app" field in the body — the path carries it.
+POST {{host}}/v1/apps/rh/policies
 Authorization: {{auth_admin}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "policyId": "doc-access",
   "version": 1,
   "resourceType": "document",
@@ -52,53 +54,50 @@ Content-Type: application/json
   ]
 }
 
-### EXPECTED RESPONSE  201 Created
+### EXPECTED  201 Created
 ### { "policyId": "doc-access", "version": 1, "active": false }
-###                                            ↑ created inactive; not evaluable yet
 
 
 ### ----------------------------------------------------------------------------
-### 2) LIST — the freshly created (INACTIVE) policy is visible by default (ADR-025)
+### 2) LIST the app's policies — the INACTIVE one is visible by default (ADR-025)
 ### ----------------------------------------------------------------------------
-GET {{host}}/v1/policies
+GET {{host}}/v1/apps/rh/policies
 Authorization: {{auth_admin}}
 
-### EXPECTED RESPONSE  200 OK   (Paginated<PolicyHeadSummary>)
+### EXPECTED  200 OK   (Paginated<PolicyHeadSummary>)
 ### {
 ###   "data": [
 ###     { "policyId": "doc-access", "app": "rh", "resourceType": "document",
 ###       "activeVersion": null,      ← inactive, and still listed
-###       "revision": 0, "audit": { "createdBy": "…", "createdAt": "…", "changeReason": null } }
+###       "revision": 0, "audit": {…} }
 ###   ],
 ###   "pagination": { "page": 1, "size": 20, "totalPages": 1, "totalElements": 1 }
 ### }
+### `app` IS returned in responses (the server supplies it) — it is only absent from
+### request bodies.
 
 
 ### ----------------------------------------------------------------------------
-### 3) GET the policy  →  200, read the ETag (you need it to write)
+### 3) GET the policy  →  200, read the ETag (needed to write)
 ### ----------------------------------------------------------------------------
-GET {{host}}/v1/policies/doc-access
+GET {{host}}/v1/apps/rh/policies/doc-access
 Authorization: {{auth_admin}}
 
-### EXPECTED RESPONSE  200 OK   (note the ETag response header)
-### Headers:  ETag: "0"          ← revision counter; use it as If-Match below
-### Body (PolicyHeadView):
-### { "policyId": "doc-access", "app": "rh", "resourceType": "document",
-###   "activeVersion": null, "revision": 0, "audit": {…}, "activeContent": null }
+### EXPECTED  200 OK.  Headers: ETag: "0"
+### Body (PolicyHeadView): { policyId, app:"rh", resourceType, activeVersion:null,
+###                          revision:0, audit:{…}, activeContent:null }
 
 
 ### ----------------------------------------------------------------------------
 ### 4) APPEND a new version (PUT)  →  200, creates v2 (still inactive)
 ### ----------------------------------------------------------------------------
-### `app` must match the policy's app — it is IMMUTABLE across versions (ADR-024).
-PUT {{host}}/v1/policies/doc-access
+PUT {{host}}/v1/apps/rh/policies/doc-access
 Authorization: {{auth_admin}}
 Content-Type: application/json
 If-Match: "0"
 
 {
   "content": {
-    "app": "rh",
     "policyId": "doc-access",
     "version": 2,
     "resourceType": "document",
@@ -117,41 +116,38 @@ If-Match: "0"
   "changeReason": "add area-scope rule"
 }
 
-### EXPECTED RESPONSE  200 OK
-### Headers:  ETag: "1"          ← revision bumped 0 → 1
-### Body: head view; activeVersion still null (append does not activate).
+### EXPECTED  200 OK, ETag: "1"   (activeVersion still null — append does not activate)
 
 
 ### ----------------------------------------------------------------------------
-### 5) LIST versions  →  200, see the history
+### 5) LIST versions
 ### ----------------------------------------------------------------------------
-GET {{host}}/v1/policies/doc-access/versions
+GET {{host}}/v1/apps/rh/policies/doc-access/versions
 Authorization: {{auth_admin}}
 
-### EXPECTED  200 OK — data: [ {policyId, app:"rh", version:1, …}, {… version:2 …} ]
+### EXPECTED  200 — data: [ {policyId, app:"rh", version:1, …}, {… version:2 …} ]
 
 
 ### ----------------------------------------------------------------------------
-### 6) EVALUATE before activating  →  200 allowed:false (nothing is active)
+### 6) EVALUATE before activating  →  200 allowed:false (nothing active yet)
 ### ----------------------------------------------------------------------------
-### `app` is REQUIRED on every evaluation request (ADR-024).
-POST {{host}}/v1/evaluate
+### Evaluation is nested too. NO "app" in the body.
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "action": "document:read",
   "resource": {"type": "document", "id": "d1", "attributes": {"assignees": ["test-user"]}}
 }
 
-### EXPECTED  200 OK  →  { "allowed": false, "reason": "…", "policyVersion": null, … }
+### EXPECTED  200 OK  →  { "allowed": false, "policyVersion": null, … }
 
 
 ### ----------------------------------------------------------------------------
 ### 7) ACTIVATE version 2  →  200, now it's live
 ### ----------------------------------------------------------------------------
-POST {{host}}/v1/policies/doc-access/activate
+POST {{host}}/v1/apps/rh/policies/doc-access/activate
 Authorization: {{auth_admin}}
 Content-Type: application/json
 If-Match: "1"
@@ -161,19 +157,18 @@ If-Match: "1"
   "changeReason": "go live with area-scope"
 }
 
-### EXPECTED  200 OK, ETag: "2"   (activeVersion: 2, activeContent: <v2 document>)
+### EXPECTED  200 OK, ETag: "2"   (activeVersion: 2)
 
 
 ### ----------------------------------------------------------------------------
 ### 8) EVALUATE — PERMIT (subject is an assignee)
 ### ----------------------------------------------------------------------------
 ### Replace "test-user" with the sub in your {{jwt}}.
-POST {{host}}/v1/evaluate
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "action": "document:read",
   "resource": {"type": "document", "id": "d1", "attributes": {"assignees": ["test-user"]}}
 }
@@ -184,12 +179,11 @@ Content-Type: application/json
 ### ----------------------------------------------------------------------------
 ### 9) EVALUATE — PERMIT via area-scope (v2's new rule)
 ### ----------------------------------------------------------------------------
-POST {{host}}/v1/evaluate
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "action": "document:read",
   "resource": {"type": "document", "id": "d2", "attributes": {"area": "A"}},
   "subjectAttributes": {"area": "A"}
@@ -201,12 +195,11 @@ Content-Type: application/json
 ### ----------------------------------------------------------------------------
 ### 10) EVALUATE — DEFAULT DENY (nothing matches)
 ### ----------------------------------------------------------------------------
-POST {{host}}/v1/evaluate
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "action": "document:read",
   "resource": {"type": "document", "id": "d4", "attributes": {"assignees": ["someone-else"], "area": "B"}},
   "subjectAttributes": {"area": "A"}
@@ -216,18 +209,18 @@ Content-Type: application/json
 
 
 ### ============================================================================
-### APPLICATION ISOLATION (ADR-024) — the core guarantee, made tangible
-### Same resourceType "document" in a different app. They never cross.
+### COMPOSITE IDENTITY (ADR-026) — the SAME policyId in a DIFFERENT app
+### This is what R026 fixed: it used to be rejected with a misleading
+### "app is immutable" error. Now they coexist as two independent policies.
 ### ============================================================================
 
-### 11) Create a policy in app "nami", SAME resourceType, opposite outcome
-POST {{host}}/v1/policies
+### 11) Create "doc-access" AGAIN — but in app "nami"  →  201 (not 409!)
+POST {{host}}/v1/apps/nami/policies
 Authorization: {{auth_admin}}
 Content-Type: application/json
 
 {
-  "app": "nami",
-  "policyId": "doc-access-nami",
+  "policyId": "doc-access",
   "version": 1,
   "resourceType": "document",
   "actions": ["*"],
@@ -240,11 +233,21 @@ Content-Type: application/json
   ]
 }
 
-### EXPECTED  201.  Same resourceType as the "rh" policy — no collision (ADR-024).
+### EXPECTED  201 Created — SAME policyId, DIFFERENT app → a different policy.
+### Identity is (app, policyId). Also note the same resourceType "document" — a per-app
+### namespace, so no collision (ADR-024).
 
 
-### 12) Activate it
-POST {{host}}/v1/policies/doc-access-nami/activate
+### 12) Each is read under its own route — they are independent
+GET {{host}}/v1/apps/nami/policies/doc-access
+Authorization: {{auth_admin}}
+
+### EXPECTED  200 — app: "nami", its own rules, its own revision (0), inactive.
+### The rh one is untouched (still active on v2).
+
+
+### 13) Activate the nami one
+POST {{host}}/v1/apps/nami/policies/doc-access/activate
 Authorization: {{auth_admin}}
 Content-Type: application/json
 If-Match: "0"
@@ -254,42 +257,45 @@ If-Match: "0"
 ### EXPECTED  200, ETag: "1"
 
 
-### 13) ISOLATION — the same body as step 8, but under app "nami" → DENIED
-POST {{host}}/v1/evaluate
+### ============================================================================
+### APPLICATION ISOLATION (ADR-024) — a policy never decides another app's request
+### ============================================================================
+
+### 14) The rh request, evaluated under app "nami" → DENIED
+### Same body as step 8 (which PERMITs under rh). Only the path changes.
+POST {{host}}/v1/apps/nami/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "nami",
   "action": "document:read",
   "resource": {"type": "document", "id": "d1", "attributes": {"assignees": ["test-user"]}}
 }
 
 ### EXPECTED  200 OK  →  allowed: FALSE
-### The rh policy (which permits this exact request) is INVISIBLE to app "nami".
+### The rh policy is INVISIBLE to app nami. Only nami's policy applies, and its
+### clearance rule does not match → defaultEffect DENY.
 
 
-### 14) ISOLATION — the nami request under app "rh" → DENIED
-POST {{host}}/v1/evaluate
+### 15) The nami request, evaluated under app "rh" → DENIED
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "action": "document:read",
   "resource": {"type": "document", "id": "d9", "attributes": {"clearanceLevel": 5}}
 }
 
-### EXPECTED  200 OK  →  allowed: FALSE  (the nami policy is invisible to app "rh")
+### EXPECTED  200 OK  →  allowed: FALSE  (nami's policy is invisible to rh)
 
 
-### 15) …and under its own app, it PERMITs
-POST {{host}}/v1/evaluate
+### 16) …and under its own app, it PERMITs
+POST {{host}}/v1/apps/nami/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "nami",
   "action": "document:read",
   "resource": {"type": "document", "id": "d9", "attributes": {"clearanceLevel": 5}}
 }
@@ -298,64 +304,69 @@ Content-Type: application/json
 
 
 ### ============================================================================
-### LISTING FILTERS — ?app= (ADR-024) + ?status= (ADR-025). They compose with AND.
+### CROSS-APP CATALOGUE (ADR-026 §3) — read-only, for multi-app administrators
 ### ============================================================================
 
-### 16) All policies, all states (default)
+### 17) All policies of ALL apps (paginated server-side)
 GET {{host}}/v1/policies
 Authorization: {{auth_admin}}
 
-### EXPECTED  200 — both "doc-access" (rh) and "doc-access-nami" (nami)
+### EXPECTED  200 — both "doc-access" of rh AND "doc-access" of nami, each with its
+### own `app` field. This is the only non-nested route, and it is READ-ONLY.
 
 
-### 17) Only active
-GET {{host}}/v1/policies?status=active
-Authorization: {{auth_admin}}
-
-### EXPECTED  200 — only heads with activeVersion != null
-
-
-### 18) Only inactive
-GET {{host}}/v1/policies?status=inactive
-Authorization: {{auth_admin}}
-
-### EXPECTED  200 — only heads with activeVersion == null
-
-
-### 19) Filter by app
+### 18) Catalogue filtered by app
 GET {{host}}/v1/policies?app=rh
 Authorization: {{auth_admin}}
 
-### EXPECTED  200 — only policies of app "rh"
+### EXPECTED  200 — only rh's policies
 
 
-### 20) COMPOSITION — app AND status
+### 19) Catalogue filtered by status
+GET {{host}}/v1/policies?status=active
+Authorization: {{auth_admin}}
+
+### EXPECTED  200 — only active heads, across all apps
+
+
+### 20) COMPOSITION — app AND status (filters combine with AND)
 GET {{host}}/v1/policies?app=rh&status=active
 Authorization: {{auth_admin}}
 
-### EXPECTED  200 — only the ACTIVE policies of app "rh"
+### EXPECTED  200 — only the ACTIVE policies of app rh
+
+
+### ============================================================================
+### NESTED LISTING FILTERS — ?status= still applies inside an app
+### ============================================================================
+
+### 21) Only the inactive policies of app "rh"
+GET {{host}}/v1/apps/rh/policies?status=inactive
+Authorization: {{auth_admin}}
+
+### EXPECTED  200 — inactive heads of rh only.  (There is no ?app= here — the path
+### already scopes it.)
 
 
 ### ----------------------------------------------------------------------------
-### 21) DEACTIVATE  →  200, soft retire (history intact)
+### 22) DEACTIVATE  →  200, soft retire (history intact)
 ### ----------------------------------------------------------------------------
-POST {{host}}/v1/policies/doc-access/deactivate
+POST {{host}}/v1/apps/rh/policies/doc-access/deactivate
 Authorization: {{auth_admin}}
 Content-Type: application/json
 If-Match: "2"
 
 { "changeReason": "temporarily retire" }
 
-### EXPECTED  200, ETag: "3".  activeVersion: null, activeContent: null (versions kept)
+### EXPECTED  200, ETag: "3".  activeVersion: null (versions are kept)
 
 
-### 22) EVALUATE after deactivate  →  200 allowed:false
-POST {{host}}/v1/evaluate
+### 23) EVALUATE after deactivate  →  allowed:false
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "action": "document:read",
   "resource": {"type": "document", "id": "d1", "attributes": {"assignees": ["test-user"]}}
 }
@@ -367,13 +378,15 @@ Content-Type: application/json
 ### ERROR CONTRACTS — RFC 9457 application/problem+json (docs/ERRORS.md)
 ### ============================================================================
 
-### 23) 400 INVALID_POLICY — create without `app` (ADR-024: required)
-POST {{host}}/v1/policies
+### 24) 400 INVALID_POLICY — `app` present in the body (ADR-026)
+### Even though it MATCHES the path, the field must not exist at all.
+POST {{host}}/v1/apps/rh/policies
 Authorization: {{auth_admin}}
 Content-Type: application/json
 
 {
-  "policyId": "no-app",
+  "app": "rh",
+  "policyId": "with-app-in-body",
   "version": 1,
   "resourceType": "document",
   "actions": ["*"],
@@ -382,66 +395,33 @@ Content-Type: application/json
   "rules": []
 }
 
-### EXPECTED  400  code: "INVALID_POLICY"  (invalidParams points at 'app')
-
-
-### 24) 400 INVALID_POLICY — append with a DIFFERENT app (app is immutable)
-### Use the CURRENT ETag of doc-access (GET it first) in place of "3".
-PUT {{host}}/v1/policies/doc-access
-Authorization: {{auth_admin}}
-Content-Type: application/json
-If-Match: "3"
-
-{
-  "content": {
-    "app": "nami",
-    "policyId": "doc-access",
-    "version": 3,
-    "resourceType": "document",
-    "actions": ["*"],
-    "combiningAlgorithm": "DENY_OVERRIDES",
-    "defaultEffect": "DENY",
-    "rules": []
-  },
-  "changeReason": "try to move it to another app"
-}
-
 ### EXPECTED  400  code: "INVALID_POLICY"
-### → "app is immutable; policy 'doc-access' belongs to app 'rh'".
-### A policy can never be moved between applications.
+### → "'app' must not be present in the body; it is determined by the path."
+### A contradicting value (e.g. "app":"nami" here) gives the same 400 — the field is
+### rejected for EXISTING, so a body can never silently override the route.
 
 
-### 25) 400 BAD_REQUEST — evaluate without `app`
-POST {{host}}/v1/evaluate
+### 25) 400 BAD_REQUEST — `app` present in an evaluation body
+POST {{host}}/v1/apps/rh/evaluate
 Authorization: {{auth}}
 Content-Type: application/json
 
 {
+  "app": "rh",
   "action": "document:read",
   "resource": {"type": "document", "id": "d1"}
 }
 
-### EXPECTED  400  code: "BAD_REQUEST"  → "app must not be blank."
-### (Same rule applies to EVERY item of /v1/evaluate/batch — a missing app fails the
-###  whole batch with 400, it does not return a silent deny.)
+### EXPECTED  400  code: "BAD_REQUEST"
+### (Same for EVERY item of /evaluate/batch — one offending item fails the whole batch.)
 
 
-### 26) 400 — invalid ?status= value
-GET {{host}}/v1/policies?status=whatever
-Authorization: {{auth_admin}}
-
-### EXPECTED  400  → "'status' must be one of: active, inactive, all."
-### NOTE: ?status= (present but EMPTY) is ALSO 400 — a blank value is an explicit
-### invalid value, not an absence. The default only applies when the param is omitted.
-
-
-### 27) 409 POLICY_ALREADY_EXISTS
-POST {{host}}/v1/policies
+### 26) 409 POLICY_ALREADY_EXISTS — duplicate id WITHIN the same app
+POST {{host}}/v1/apps/rh/policies
 Authorization: {{auth_admin}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "policyId": "doc-access",
   "version": 1,
   "resourceType": "document",
@@ -452,23 +432,34 @@ Content-Type: application/json
 }
 
 ### EXPECTED  409  code: "POLICY_ALREADY_EXISTS"
+### → "A policy with id 'doc-access' already exists in app 'rh'."
+### The 409 is now per-app and honest: the same id in ANOTHER app is fine (step 11).
+
+
+### 27) 404 POLICY_NOT_FOUND — the policy of another app is invisible
+GET {{host}}/v1/apps/kronia/policies/doc-access
+Authorization: {{auth_admin}}
+
+### EXPECTED  404  code: "POLICY_NOT_FOUND"
+### → "No policy with id 'doc-access' in app 'kronia'."
+### It exists in rh and nami, but not in kronia. Identity is (app, policyId).
 
 
 ### 28) 428 PRECONDITION_REQUIRED — write without If-Match
-PUT {{host}}/v1/policies/doc-access
+PUT {{host}}/v1/apps/rh/policies/doc-access
 Authorization: {{auth_admin}}
 Content-Type: application/json
 
-{ "content": { "app": "rh", "policyId": "doc-access", "version": 4,
-    "resourceType": "document", "actions": ["*"],
-    "combiningAlgorithm": "DENY_OVERRIDES", "defaultEffect": "DENY", "rules": [] },
+{ "content": { "policyId": "doc-access", "version": 4, "resourceType": "document",
+    "actions": ["*"], "combiningAlgorithm": "DENY_OVERRIDES", "defaultEffect": "DENY",
+    "rules": [] },
   "changeReason": "no if-match" }
 
 ### EXPECTED  428  code: "PRECONDITION_REQUIRED"
 
 
 ### 29) 412 PRECONDITION_FAILED — stale If-Match
-POST {{host}}/v1/policies/doc-access/activate
+POST {{host}}/v1/apps/rh/policies/doc-access/activate
 Authorization: {{auth_admin}}
 Content-Type: application/json
 If-Match: "0"
@@ -478,16 +469,9 @@ If-Match: "0"
 ### EXPECTED  412  code: "PRECONDITION_FAILED"  (extension: currentRevision)
 
 
-### 30) 404 POLICY_NOT_FOUND
-GET {{host}}/v1/policies/does-not-exist
-Authorization: {{auth_admin}}
-
-### EXPECTED  404  code: "POLICY_NOT_FOUND"
-
-
-### 31) 404 VERSION_NOT_FOUND — activate a version that doesn't exist
-### Use the current ETag of doc-access in place of "3".
-POST {{host}}/v1/policies/doc-access/activate
+### 30) 404 VERSION_NOT_FOUND — activate a version that doesn't exist
+### Use the current ETag of rh/doc-access in place of "3".
+POST {{host}}/v1/apps/rh/policies/doc-access/activate
 Authorization: {{auth_admin}}
 Content-Type: application/json
 If-Match: "3"
@@ -497,13 +481,21 @@ If-Match: "3"
 ### EXPECTED  404  code: "VERSION_NOT_FOUND"
 
 
+### 31) 400 — invalid ?status= value
+GET {{host}}/v1/apps/rh/policies?status=whatever
+Authorization: {{auth_admin}}
+
+### EXPECTED  400  → "'status' must be one of: active, inactive, all."
+### NOTE: ?status= (present but EMPTY) is also 400 — a blank value is an explicit
+### invalid value, not an absence.
+
+
 ### 32) 400 INVALID_POLICY — ordering operator with a non-numeric LITERAL (ADR-023)
-POST {{host}}/v1/policies
+POST {{host}}/v1/apps/rh/policies
 Authorization: {{auth_admin}}
 Content-Type: application/json
 
 {
-  "app": "rh",
   "policyId": "bad-typed",
   "version": 1,
   "resourceType": "document",
@@ -520,17 +512,16 @@ Content-Type: application/json
 ### EXPECTED  400  code: "INVALID_POLICY"
 ### NOTE (ADR-023): a non-numeric LITERAL is rejected at authoring. A non-numeric
 ### ATTRIBUTE resolved at runtime is NOT an error — the comparison just doesn't hold
-### → deny. /evaluate never returns 500 on operand type.
+### → deny. Evaluation never returns 500 on operand type.
 
 
 ### 33) 403 FORBIDDEN — write with a non-admin token
-POST {{host}}/v1/policies
+POST {{host}}/v1/apps/rh/policies
 Authorization: {{auth}}
 Content-Type: application/json
 
-{ "app": "rh", "policyId": "nope", "version": 1, "resourceType": "document",
-  "actions": ["*"], "combiningAlgorithm": "DENY_OVERRIDES", "defaultEffect": "DENY",
-  "rules": [] }
+{ "policyId": "nope", "version": 1, "resourceType": "document", "actions": ["*"],
+  "combiningAlgorithm": "DENY_OVERRIDES", "defaultEffect": "DENY", "rules": [] }
 
 ### EXPECTED  403  code: "FORBIDDEN"  (caller lacks the admin marker)
 
@@ -543,14 +534,19 @@ Content-Type: application/json
 ### ============================================================================
 ### HOW TO OBTAIN TOKENS (dev)
 ### ----------------------------------------------------------------------------
-### In quarkus:dev the OIDC dev services start a Keycloak. Get tokens via the
-### Dev UI (http://localhost:8080/q/dev) → OIDC. {{admin_jwt}} must carry the admin
-### marker (role "authz-admin" by default; configurable per ADR-013). {{jwt}} is any
-### authenticated user.
+### In quarkus:dev the OIDC dev services start a Keycloak. Get tokens via the Dev UI
+### (http://localhost:8080/q/dev) → OIDC. {{admin_jwt}} must carry the admin marker
+### (role "authz-admin" by default; configurable per ADR-013).
+###
+### SURFACE (ADR-026):
+###   /v1/apps/{app}/policies[/{id}[/activate|/deactivate|/versions[/{v}]]]
+###   /v1/apps/{app}/evaluate[/batch]
+###   /v1/apps/{app}/permissions
+###   /v1/policies                    ← cross-app catalogue, READ-ONLY (?app= ?status=)
 ###
 ### POLICY AUTHORING REFERENCE:
-###   app          REQUIRED (ADR-024). The application the policy belongs to.
-###                Immutable across versions. No wildcard, no "global" scope.
+###   Identity     (app, policyId). The app comes from the PATH; `app` must NOT be in
+###                the body (400 if present, even if it matches).
 ###   resourceType Per-app namespace: "document", NOT "rh:document".
 ###   Operators:   EQ, NEQ, IN, NOT_IN, GT, GTE, LT, LTE
 ###   Operands:    {"ref": "<path>"}  paths: subject.id | subject.attr.* |
