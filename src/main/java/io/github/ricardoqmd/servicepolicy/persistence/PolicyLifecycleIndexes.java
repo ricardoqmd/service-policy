@@ -45,11 +45,17 @@ public class PolicyLifecycleIndexes {
     /** Mongo's "IndexNotFound" — the index we want gone is already gone (a new database). */
     private static final int INDEX_NOT_FOUND = 27;
 
+    private static final String APP = "app";
+    private static final String POLICY_ID = "policyId";
+    private static final String VERSION = "version";
+    private static final String RESOURCE_TYPE = "resourceType";
+    private static final String ACTIVE_VERSION = "activeVersion";
+
     /** Legacy unique index of the pre-ADR-026 identity: one head per policyId, across all apps. */
-    private static final Bson LEGACY_HEAD_IDENTITY = Indexes.ascending("policyId");
+    private static final Bson LEGACY_HEAD_IDENTITY = Indexes.ascending(POLICY_ID);
 
     /** Legacy unique index of the pre-ADR-026 identity: one version per (policyId, version). */
-    private static final Bson LEGACY_VERSION_IDENTITY = Indexes.ascending("policyId", "version");
+    private static final Bson LEGACY_VERSION_IDENTITY = Indexes.ascending(POLICY_ID, VERSION);
 
     private final PolicyHeadRepository headRepository;
     private final PolicyVersionRepository versionRepository;
@@ -62,13 +68,13 @@ public class PolicyLifecycleIndexes {
     void ensureIndexes(@Observes StartupEvent event) {
         dropLegacyIdentityIndexes();
 
-        headRepository.mongoCollection().createIndex(Indexes.ascending("app", "resourceType", "activeVersion"));
+        headRepository.mongoCollection().createIndex(Indexes.ascending(APP, RESOURCE_TYPE, ACTIVE_VERSION));
         headRepository
                 .mongoCollection()
-                .createIndex(Indexes.ascending("app", "policyId"), new IndexOptions().unique(true));
+                .createIndex(Indexes.ascending(APP, POLICY_ID), new IndexOptions().unique(true));
         versionRepository
                 .mongoCollection()
-                .createIndex(Indexes.ascending("app", "policyId", "version"), new IndexOptions().unique(true));
+                .createIndex(Indexes.ascending(APP, POLICY_ID, VERSION), new IndexOptions().unique(true));
     }
 
     /**

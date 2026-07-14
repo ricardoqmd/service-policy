@@ -51,15 +51,22 @@ class PolicyLifecycleIndexesTest {
     PolicyVersionRepository versionRepository;
 
     @BeforeEach
-    @AfterEach
     void clean() {
         headRepository.deleteAll();
         versionRepository.deleteAll();
     }
 
+    /**
+     * One teardown, in a deliberate order: drop the documents first, then rebuild the indexes. JUnit
+     * does not order multiple {@code @AfterEach} methods, so splitting this in two would leave the
+     * restoration itself at the mercy of an undefined order — the exact contamination it exists to
+     * prevent. Documents go first because the rebuilt unique indexes must not have to arbitrate rows
+     * this test left behind.
+     */
     @AfterEach
-    void restoreIndexes() {
-        // Leave the collections in the state the application boots into, whatever this test did.
+    void cleanAndRestoreBootIndexes() {
+        headRepository.deleteAll();
+        versionRepository.deleteAll();
         indexes.ensureIndexes(null);
     }
 
