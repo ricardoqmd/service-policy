@@ -19,9 +19,13 @@ import io.quarkus.test.security.TestSecurity;
 import io.restassured.http.ContentType;
 
 /**
- * HTTP tests for ADR-025: {@code GET /v1/policies} lists every lifecycle state by default and
- * filters with {@code ?status=active|inactive|all}, composing with the {@code ?app=} filter of
- * ADR-024.
+ * HTTP tests for ADR-025: a policy listing shows every lifecycle state by default and filters with
+ * {@code ?status=active|inactive|all}.
+ *
+ * <p>Under ADR-026 there are two listings, and {@code ?status=} belongs to both. The per-app listing
+ * ({@code GET /v1/apps/{app}/policies}) is the primary surface — the app is the path, so it has no
+ * {@code ?app=} filter. The cross-app catalogue ({@code GET /v1/policies}) is the one place where
+ * {@code ?app=} survives as a genuine filter, and there it composes with {@code ?status=} as an AND.
  *
  * <p>Policies are created and activated through the API, not seeded, so the listing is exercised
  * against exactly the state an administrator produces.
@@ -33,6 +37,8 @@ import io.restassured.http.ContentType;
 class PolicyListStatusFilterTest {
 
     static final String ADMIN = "authz-admin";
+
+    private static final String CATALOGUE = "/v1/policies";
 
     @Inject
     PolicyHeadRepository headRepository;
@@ -56,11 +62,12 @@ class PolicyListStatusFilterTest {
         createPolicy("app-a", "freshly-created");
 
         given().when()
-                .get("/v1/policies")
+                .get(policies("app-a"))
                 .then()
                 .statusCode(200)
                 .body("data", hasSize(1))
                 .body("data[0].policyId", equalTo("freshly-created"))
+                .body("data[0].app", equalTo("app-a"))
                 .body("data[0].activeVersion", nullValue())
                 .body("pagination.totalElements", equalTo(1));
     }
@@ -71,7 +78,7 @@ class PolicyListStatusFilterTest {
         createPolicy("app-a", "p-inactive");
 
         given().when()
-                .get("/v1/policies?status=active")
+                .get(policies("app-a") + "?status=active")
                 .then()
                 .statusCode(200)
                 .body("data", hasSize(1))
@@ -86,7 +93,7 @@ class PolicyListStatusFilterTest {
         createPolicy("app-a", "p-inactive");
 
         given().when()
-                .get("/v1/policies?status=inactive")
+                .get(policies("app-a") + "?status=inactive")
                 .then()
                 .statusCode(200)
                 .body("data", hasSize(1))
@@ -101,7 +108,7 @@ class PolicyListStatusFilterTest {
         createPolicy("app-a", "p-inactive");
 
         given().when()
-                .get("/v1/policies?status=ALL") // parsing is case-insensitive
+                .get(policies("app-a") + "?status=ALL") // parsing is case-insensitive
                 .then()
                 .statusCode(200)
                 .body("data", hasSize(2))
@@ -112,7 +119,7 @@ class PolicyListStatusFilterTest {
     @Test
     void unknownStatusIsRejected() {
         given().when()
-                .get("/v1/policies?status=basura")
+                .get(policies("app-a") + "?status=basura")
                 .then()
                 .statusCode(400)
                 .contentType("application/problem+json")
@@ -127,27 +134,62 @@ class PolicyListStatusFilterTest {
     @Test
     void blankStatusIsRejectedNotDefaulted() {
         given().when()
-                .get("/v1/policies?status=")
+                .get(policies("app-a") + "?status=")
                 .then()
                 .statusCode(400)
                 .contentType("application/problem+json")
                 .body("code", equalTo("BAD_REQUEST"));
     }
 
-    /** ADR-025 §shape of the listing contract: the optional filters compose with AND. */
+    /** The nested listing is scoped by its path: another app's policies never leak into it. */
     @Test
-    void statusAndAppFiltersComposeWithAnd() {
+    void nestedListingOnlyShowsThePoliciesOfItsOwnApp() {
+        createPolicy("app-a", "a-only");
+        createPolicy("app-b", "b-only");
+
+        given().when()
+                .get(policies("app-b"))
+                .then()
+                .statusCode(200)
+                .body("data", hasSize(1))
+                .body("data[0].policyId", equalTo("b-only"))
+                .body("data[0].app", equalTo("app-b"))
+                .body("pagination.totalElements", equalTo(1));
+    }
+
+    /**
+     * ADR-025 §shape of the listing contract: the optional filters compose with AND. On the
+     * cross-app catalogue (ADR-026 §3) both filters are query parameters, so this is where the
+     * composition is observable.
+     */
+    @Test
+    void statusAndAppFiltersComposeWithAndOnTheCatalogue() {
         createAndActivatePolicy("app-a", "a-active");
         createPolicy("app-a", "a-inactive");
         createPolicy("app-b", "b-inactive");
 
         given().when()
-                .get("/v1/policies?app=app-a&status=inactive")
+                .get(CATALOGUE + "?app=app-a&status=inactive")
                 .then()
                 .statusCode(200)
                 .body("data", hasSize(1))
                 .body("data[0].policyId", equalTo("a-inactive"))
+                .body("data[0].app", equalTo("app-a"))
                 .body("pagination.totalElements", equalTo(1));
+    }
+
+    /** Without '?app=', the catalogue spans applications — that is its reason to exist. */
+    @Test
+    void catalogueWithoutAppFilterSpansApplications() {
+        createPolicy("app-a", "a-inactive");
+        createAndActivatePolicy("app-b", "b-active");
+
+        given().when()
+                .get(CATALOGUE + "?status=all")
+                .then()
+                .statusCode(200)
+                .body("data", hasSize(2))
+                .body("pagination.totalElements", equalTo(2));
     }
 
     /** Totals count what the filter selects, not the whole collection. */
@@ -158,7 +200,7 @@ class PolicyListStatusFilterTest {
         createPolicy("app-a", "p-3-inactive");
 
         given().when()
-                .get("/v1/policies?size=2")
+                .get(policies("app-a") + "?size=2")
                 .then()
                 .statusCode(200)
                 .body("data", hasSize(2))
@@ -166,7 +208,7 @@ class PolicyListStatusFilterTest {
                 .body("pagination.totalPages", equalTo(2));
 
         given().when()
-                .get("/v1/policies?status=inactive&size=2")
+                .get(policies("app-a") + "?status=inactive&size=2")
                 .then()
                 .statusCode(200)
                 .body("data", hasSize(2))
@@ -177,11 +219,14 @@ class PolicyListStatusFilterTest {
 
     // --- API-driven setup ----------------------------------------------------
 
+    private static String policies(String app) {
+        return "/v1/apps/" + app + "/policies";
+    }
+
     private void createPolicy(String app, String policyId) {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "%s",
                           "policyId": "%s",
                           "version": 1,
                           "resourceType": "document",
@@ -190,9 +235,9 @@ class PolicyListStatusFilterTest {
                           "defaultEffect": "DENY",
                           "rules": []
                         }
-                        """.formatted(app, policyId))
+                        """.formatted(policyId))
                 .when()
-                .post("/v1/policies")
+                .post(policies(app))
                 .then()
                 .statusCode(201);
     }
@@ -201,7 +246,7 @@ class PolicyListStatusFilterTest {
         createPolicy(app, policyId);
 
         String etag = given().when()
-                .get("/v1/policies/" + policyId)
+                .get(policies(app) + "/" + policyId)
                 .then()
                 .statusCode(200)
                 .extract()
@@ -211,7 +256,7 @@ class PolicyListStatusFilterTest {
                 .header("If-Match", etag)
                 .body("{\"version\": 1}")
                 .when()
-                .post("/v1/policies/" + policyId + "/activate")
+                .post(policies(app) + "/" + policyId + "/activate")
                 .then()
                 .statusCode(200);
     }

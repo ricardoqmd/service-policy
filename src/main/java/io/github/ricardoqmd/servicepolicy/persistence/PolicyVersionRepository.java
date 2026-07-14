@@ -13,22 +13,26 @@ import io.quarkus.panache.common.Sort;
 @ApplicationScoped
 public class PolicyVersionRepository implements PanacheMongoRepository<PolicyVersionDocument> {
 
+    private static final String IDENTITY = "{'app': ?1, 'policyId': ?2}";
+
     /**
-     * @return versions of the given policy, newest first, for the requested zero-based page.
+     * @return versions of the given policy — identified by {@code (app, policyId)} (ADR-026) —
+     *     newest first, for the requested zero-based page.
      */
-    public List<PolicyVersionDocument> findByPolicyId(String policyId, int pageIndex, int size) {
-        return find("{'policyId': ?1}", Sort.descending("version"), policyId)
+    public List<PolicyVersionDocument> findByAppAndPolicyId(String app, String policyId, int pageIndex, int size) {
+        return find(IDENTITY, Sort.descending("version"), app, policyId)
                 .page(Page.of(pageIndex, size))
                 .list();
     }
 
     /** @return the number of versions of the given policy. */
-    public long countByPolicyId(String policyId) {
-        return count("{'policyId': ?1}", policyId);
+    public long countByAppAndPolicyId(String app, String policyId) {
+        return count(IDENTITY, app, policyId);
     }
 
     /** @return the specific version of the given policy, if present. */
-    public Optional<PolicyVersionDocument> findByPolicyIdAndVersion(String policyId, int version) {
-        return find("{'policyId': ?1, 'version': ?2}", policyId, version).firstResultOptional();
+    public Optional<PolicyVersionDocument> findByAppAndPolicyIdAndVersion(String app, String policyId, int version) {
+        return find("{'app': ?1, 'policyId': ?2, 'version': ?3}", app, policyId, version)
+                .firstResultOptional();
     }
 }

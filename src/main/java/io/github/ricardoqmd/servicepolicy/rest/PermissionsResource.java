@@ -4,8 +4,8 @@ import java.time.Instant;
 
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
@@ -14,7 +14,6 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
 import io.github.ricardoqmd.servicepolicy.evaluation.PermissionsResponse;
 import io.github.ricardoqmd.servicepolicy.evaluation.PolicyEvaluator;
-import io.github.ricardoqmd.servicepolicy.problem.InvalidRequestException;
 import io.quarkus.security.Authenticated;
 
 /**
@@ -28,7 +27,7 @@ import io.quarkus.security.Authenticated;
  * <p>Subject is always the caller's own JWT subject (self-only). Delegated listing is deferred
  * to the bulk-permissions decision (ADR-013 §6).
  */
-@Path("/v1/permissions")
+@Path("/v1/apps/{app}/permissions")
 @Produces(MediaType.APPLICATION_JSON)
 @Tag(name = "permissions", description = "Subject permission listing endpoint.")
 @Authenticated
@@ -46,15 +45,12 @@ public class PermissionsResource {
     @Operation(
             summary = "List permitted actions for the authenticated subject",
             description = "Returns a flat, cacheable list of actions the subject is permitted to perform within"
-                    + " the given application context. Subject is resolved from the validated Bearer JWT"
-                    + " (ADR-013). The response is safe to cache per subject + app + policyVersion;"
-                    + " the policyVersion field changes when policies are updated."
-                    + " Returns 401 if unauthenticated. Returns 400 if the 'app' query parameter is missing.")
-    public Response permissions(@QueryParam("app") String app) {
+                    + " the application named in the path (ADR-026). Subject is resolved from the"
+                    + " validated Bearer JWT (ADR-013). The response is safe to cache per subject + app +"
+                    + " policyVersion; the policyVersion field changes when policies are updated."
+                    + " Returns 401 if unauthenticated.")
+    public Response permissions(@PathParam("app") String app) {
         String subject = authContext.callerSubject();
-        if (app == null || app.isBlank()) {
-            throw new InvalidRequestException("'app' query parameter must not be blank.");
-        }
         return Response.ok(new PermissionsResponse(
                         subject,
                         app,

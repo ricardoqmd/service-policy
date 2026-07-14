@@ -16,6 +16,7 @@ import io.quarkus.panache.common.Sort;
 @ApplicationScoped
 public class PolicyHeadRepository implements PanacheMongoRepository<PolicyHeadDocument> {
 
+    private static final String IDENTITY = "{'app': ?1, 'policyId': ?2}";
     private static final String ACTIVE_CLAUSE = "'activeVersion': {$ne: null}";
     private static final String INACTIVE_CLAUSE = "'activeVersion': null";
     private static final String APP_CLAUSE = "'app': ?1";
@@ -65,14 +66,14 @@ public class PolicyHeadRepository implements PanacheMongoRepository<PolicyHeadDo
         return clauses.isEmpty() ? null : "{" + String.join(", ", clauses) + "}";
     }
 
-    /** @return the head for the given policyId, if present. */
-    public Optional<PolicyHeadDocument> findByPolicyId(String policyId) {
-        return find("{'policyId': ?1}", policyId).firstResultOptional();
+    /** @return the head for the given composite identity {@code (app, policyId)} (ADR-026), if present. */
+    public Optional<PolicyHeadDocument> findByAppAndPolicyId(String app, String policyId) {
+        return find(IDENTITY, app, policyId).firstResultOptional();
     }
 
-    /** @return {@code true} if a head exists for the given policyId. */
-    public boolean existsByPolicyId(String policyId) {
-        return count("{'policyId': ?1}", policyId) > 0;
+    /** @return {@code true} if a head exists for the given composite identity {@code (app, policyId)}. */
+    public boolean existsByAppAndPolicyId(String app, String policyId) {
+        return count(IDENTITY, app, policyId) > 0;
     }
 
     /**

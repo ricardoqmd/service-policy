@@ -28,8 +28,9 @@ import io.quarkus.test.security.TestSecurity;
 import io.restassured.http.ContentType;
 
 /**
- * End-to-end scenarios for {@code POST /v1/evaluate} against the persistence-backed evaluator with
- * a real seeded policy (the neutral ADR-008 domain: {@code document} / {@code area} / assignment).
+ * End-to-end scenarios for {@code POST /v1/apps/{app}/evaluate} against the persistence-backed
+ * evaluator with a real seeded policy (the neutral ADR-008 domain: {@code document} / {@code area} /
+ * assignment).
  *
  * <p>Each test seeds a single active {@code document} policy through the head-pointer model
  * (ADR-021): {@code create} then {@code activate}. This exercises the full production path — REST →
@@ -40,6 +41,8 @@ import io.restassured.http.ContentType;
  */
 @QuarkusTest
 class EvaluatePolicyScenariosTest {
+
+    private static final String APP = "test-app";
 
     @Inject
     PolicyLifecycleStore lifecycleStore;
@@ -55,8 +58,8 @@ class EvaluatePolicyScenariosTest {
         headRepository.deleteAll();
         versionRepository.deleteAll();
         // create (revision=0) then activate version 1 with ifMatch=0L (ADR-020).
-        lifecycleStore.create(documentAccessPolicy(), "seed-subject", "seed");
-        lifecycleStore.activate("doc-access", 1, 0L, "seed-subject", "seed");
+        lifecycleStore.create(APP, documentAccessPolicy(), "seed-subject", "seed");
+        lifecycleStore.activate(APP, "doc-access", 1, 0L, "seed-subject", "seed");
     }
 
     @AfterEach
@@ -71,13 +74,12 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d1", "attributes": {"assignees": ["test-user"]}}
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/{app}/evaluate", APP)
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(true))
@@ -92,14 +94,13 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d2", "attributes": {"area": "A"}},
                           "subjectAttributes": {"area": "A"}
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/{app}/evaluate", APP)
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(true))
@@ -112,7 +113,6 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "document:read",
                           "resource": {
                             "type": "document", "id": "d3",
@@ -121,7 +121,7 @@ class EvaluatePolicyScenariosTest {
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/{app}/evaluate", APP)
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(false))
@@ -134,7 +134,6 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "document:read",
                           "resource": {
                             "type": "document", "id": "d4",
@@ -144,7 +143,7 @@ class EvaluatePolicyScenariosTest {
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/{app}/evaluate", APP)
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(false))
@@ -157,13 +156,12 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d5", "attributes": {"area": "A"}}
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/{app}/evaluate", APP)
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(false))
@@ -176,7 +174,7 @@ class EvaluatePolicyScenariosTest {
         // Reset to a clean slate with only an INACTIVE policy — deliberately skipping activate().
         headRepository.deleteAll();
         versionRepository.deleteAll();
-        lifecycleStore.create(documentAccessPolicy(), "seed-subject", "seed");
+        lifecycleStore.create(APP, documentAccessPolicy(), "seed-subject", "seed");
         // NOT activated: the evaluator must not see this policy.
 
         // This request WOULD be permitted by doc-access if it were active (subject is an assignee).
@@ -184,13 +182,12 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body("""
                         {
-                          "app": "test-app",
                           "action": "document:read",
                           "resource": {"type": "document", "id": "d6", "attributes": {"assignees": ["test-user"]}}
                         }
                         """)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/{app}/evaluate", APP)
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(false));
@@ -203,7 +200,7 @@ class EvaluatePolicyScenariosTest {
     void evaluateDeniesAfterPolicyIsDeactivated() {
         // @BeforeEach seeded doc-access (create at revision=0, then activate -> revision=1).
         String etag = given().when()
-                .get("/v1/policies/doc-access")
+                .get("/v1/apps/{app}/policies/doc-access", APP)
                 .then()
                 .statusCode(200)
                 .extract()
@@ -211,7 +208,6 @@ class EvaluatePolicyScenariosTest {
 
         String body = """
                 {
-                  "app": "test-app",
                   "action": "document:read",
                   "resource": {"type": "document", "id": "d-cycle",
                                "attributes": {"assignees": ["admin-user"]}}
@@ -222,7 +218,7 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body(body)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/{app}/evaluate", APP)
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(true));
@@ -231,7 +227,7 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .header("If-Match", etag)
                 .when()
-                .post("/v1/policies/doc-access/deactivate")
+                .post("/v1/apps/{app}/policies/doc-access/deactivate", APP)
                 .then()
                 .statusCode(200);
 
@@ -239,7 +235,7 @@ class EvaluatePolicyScenariosTest {
         given().contentType(ContentType.JSON)
                 .body(body)
                 .when()
-                .post("/v1/evaluate")
+                .post("/v1/apps/{app}/evaluate", APP)
                 .then()
                 .statusCode(200)
                 .body("allowed", equalTo(false));
@@ -265,7 +261,6 @@ class EvaluatePolicyScenariosTest {
                 Effect.DENY,
                 new Comparison(Operator.EQ, new AttributeRef("resource.attr.sealed"), new Literal(true)));
         return new Policy(
-                "test-app",
                 "doc-access",
                 1,
                 "document",

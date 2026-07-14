@@ -5,8 +5,12 @@ public class PreconditionFailedException extends ProblemException {
     private final String policyId;
     private final long currentRevision;
 
-    public PreconditionFailedException(String policyId, long currentRevision) {
-        super(412, "PRECONDITION_FAILED", "If-Match does not match the current revision " + currentRevision + ".");
+    public PreconditionFailedException(String app, String policyId, long currentRevision) {
+        super(
+                412,
+                "PRECONDITION_FAILED",
+                "If-Match does not match the current revision " + currentRevision + " of policy '" + policyId
+                        + "' in app '" + app + "'.");
         this.policyId = policyId;
         this.currentRevision = currentRevision;
     }

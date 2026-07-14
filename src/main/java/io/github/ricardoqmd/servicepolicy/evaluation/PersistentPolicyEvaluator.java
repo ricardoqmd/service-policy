@@ -46,7 +46,7 @@ public class PersistentPolicyEvaluator implements PolicyEvaluator {
     }
 
     @Override
-    public Decision evaluate(String subject, EvaluationRequest request) {
+    public Decision evaluate(String app, String subject, EvaluationRequest request) {
         String decisionId = UUID.randomUUID().toString();
 
         if (request.resource() == null
@@ -55,9 +55,9 @@ public class PersistentPolicyEvaluator implements PolicyEvaluator {
             return new Decision(false, "resource.type must not be blank", decisionId, POLICY_SET_VERSION, List.of());
         }
 
-        AuthorizationRequest authzRequest = toAuthorizationRequest(subject, request);
-        List<Policy> candidates = lifecycleStore.activePoliciesFor(
-                request.app(), authzRequest.resource().type());
+        AuthorizationRequest authzRequest = toAuthorizationRequest(app, subject, request);
+        List<Policy> candidates =
+                lifecycleStore.activePoliciesFor(app, authzRequest.resource().type());
         List<Policy> applicable = selector.select(candidates, authzRequest);
         AuthorizationDecision decision = engine.evaluate(applicable, authzRequest);
 
@@ -81,13 +81,13 @@ public class PersistentPolicyEvaluator implements PolicyEvaluator {
         return POLICY_SET_VERSION;
     }
 
-    private AuthorizationRequest toAuthorizationRequest(String subjectId, EvaluationRequest request) {
+    private AuthorizationRequest toAuthorizationRequest(String app, String subjectId, EvaluationRequest request) {
         Map<String, Object> subjectAttrs = attributeProvider.attributesFor(subjectId, request.subjectAttributes());
         Subject subject = new Subject(subjectId, subjectAttrs);
         Resource resource = new Resource(
                 request.resource().type(),
                 request.resource().id(),
                 request.resource().attributes());
-        return new AuthorizationRequest(request.app(), subject, request.action(), resource, request.context());
+        return new AuthorizationRequest(app, subject, request.action(), resource, request.context());
     }
 }
