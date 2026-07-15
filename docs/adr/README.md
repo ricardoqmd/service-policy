@@ -35,6 +35,7 @@ both are kept for the audit trail.
 | [024](024-application-scoping.md)              | Application scoping — `app` as a first-class policy dimension (policy, request, selection) | Accepted |
 | [025](025-policy-list-status-filter.md)        | Policy listing shows all lifecycle states — `?status=` filter (default `all`)              | Accepted |
 | [026](026-composite-policy-identity.md)        | Composite identity (app, policyId) + app-nested routes; app leaves request bodies          | Accepted |
+| [027](027-policy-simulation.md)                | Policy simulation — dry-run evaluation against an unsaved document (admin-gated)           | Accepted |
 
 ## Relationships
 
