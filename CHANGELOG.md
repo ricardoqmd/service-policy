@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/ricardoqmd/service-policy/compare/v0.3.1...v0.3.2) (2026-07-15)
+
+
+### Documentation
+
+* add ADR-027 policy simulation ([#136](https://github.com/ricardoqmd/service-policy/issues/136)) ([a542ed5](https://github.com/ricardoqmd/service-policy/commit/a542ed50401c6dd4d0180bdf9832584eccf166ed))
+
 ## [0.3.1](https://github.com/ricardoqmd/service-policy/compare/v0.3.0...v0.3.1) (2026-07-14)
 
 
