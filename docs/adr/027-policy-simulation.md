@@ -129,3 +129,4 @@ this app."
   combines active heads.
 - Simulation must record an audit trail (e.g. "who tested what") → decide whether a
   simulation audit is written, kept distinct from decision audit.
+
