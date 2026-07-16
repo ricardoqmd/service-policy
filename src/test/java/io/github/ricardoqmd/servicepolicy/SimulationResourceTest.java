@@ -350,6 +350,146 @@ class SimulationResourceTest {
                 .body("obligations", notNullValue());
     }
 
+    // ── Request-body guards (each rejection branch of simulate) ──────────────
+
+    /** A whole-body {@code null} → the 'policy' guard rejects it (body == null branch). */
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void nullBodyReturns400BadRequest() {
+        given().contentType(ContentType.JSON)
+                .body("null")
+                .when()
+                .post(SIMULATE, APP)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    /** No 'policy' field → the 'policy' guard rejects it (policy == null branch). */
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void missingPolicyReturns400BadRequest() {
+        given().contentType(ContentType.JSON)
+                .body("{\"request\": %s}".formatted(requestWithAssignee("admin-user")))
+                .when()
+                .post(SIMULATE, APP)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    /** An empty 'policy' object → the 'policy' guard rejects it (policy.isEmpty() branch). */
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void emptyPolicyReturns400BadRequest() {
+        given().contentType(ContentType.JSON)
+                .body("{\"policy\": {}, \"request\": %s}".formatted(requestWithAssignee("admin-user")))
+                .when()
+                .post(SIMULATE, APP)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    /** No 'request' field → the 'request' guard rejects it (request == null branch). */
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void missingRequestReturns400BadRequest() {
+        given().contentType(ContentType.JSON)
+                .body("{\"policy\": %s}".formatted(permitDraft()))
+                .when()
+                .post(SIMULATE, APP)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    /** No 'action' in the request → the 'action' guard rejects it (action == null branch). */
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void missingActionReturns400BadRequest() {
+        given().contentType(ContentType.JSON)
+                .body(simulateBody(permitDraft(), "{\"resource\": {\"type\": \"document\", \"id\": \"d1\"}}"))
+                .when()
+                .post(SIMULATE, APP)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    /** A blank 'action' → the 'action' guard rejects it (action.isBlank() branch). */
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void blankActionReturns400BadRequest() {
+        given().contentType(ContentType.JSON)
+                .body(simulateBody(
+                        permitDraft(), "{\"action\": \"   \", \"resource\": {\"type\": \"document\", \"id\": \"d1\"}}"))
+                .when()
+                .post(SIMULATE, APP)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    /** No 'resource' in the request → the 'resource' guard rejects it (resource == null branch). */
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void missingResourceReturns400BadRequest() {
+        given().contentType(ContentType.JSON)
+                .body(simulateBody(permitDraft(), "{\"action\": \"document:read\"}"))
+                .when()
+                .post(SIMULATE, APP)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    /** A resource with no 'type' → the 'resource' guard rejects it (resource.type() == null branch). */
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void missingResourceTypeReturns400BadRequest() {
+        given().contentType(ContentType.JSON)
+                .body(simulateBody(permitDraft(), "{\"action\": \"document:read\", \"resource\": {\"id\": \"d1\"}}"))
+                .when()
+                .post(SIMULATE, APP)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
+    /** A blank resource 'type' → the 'resource' guard rejects it (resource.type().isBlank() branch). */
+    @Test
+    @TestSecurity(
+            user = "admin-user",
+            roles = {ADMIN})
+    void blankResourceTypeReturns400BadRequest() {
+        given().contentType(ContentType.JSON)
+                .body(simulateBody(
+                        permitDraft(),
+                        "{\"action\": \"document:read\", \"resource\": {\"type\": \"   \", \"id\": \"d1\"}}"))
+                .when()
+                .post(SIMULATE, APP)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("BAD_REQUEST"));
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private static String simulateBody(String policyJson, String requestJson) {
