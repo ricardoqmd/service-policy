@@ -58,6 +58,33 @@ public class PersistentPolicyEvaluator implements PolicyEvaluator {
         AuthorizationRequest authzRequest = toAuthorizationRequest(app, subject, request);
         List<Policy> candidates =
                 lifecycleStore.activePoliciesFor(app, authzRequest.resource().type());
+        return decide(decisionId, candidates, authzRequest);
+    }
+
+    @Override
+    public Decision simulate(String app, String subject, EvaluationRequest request, Policy candidate) {
+        String decisionId = UUID.randomUUID().toString();
+
+        if (request.resource() == null
+                || request.resource().type() == null
+                || request.resource().type().isBlank()) {
+            return new Decision(false, "resource.type must not be blank", decisionId, POLICY_SET_VERSION, List.of());
+        }
+
+        // Zero effect (ADR-027): the candidate is the ONLY input to the engine. Nothing is read from
+        // the store (no activePoliciesFor) and nothing is written — this is a pure function of
+        // (candidate, request), sharing the exact decision core used by the active-head path.
+        AuthorizationRequest authzRequest = toAuthorizationRequest(app, subject, request);
+        return decide(decisionId, List.of(candidate), authzRequest);
+    }
+
+    /**
+     * The pure decision core shared by active-head evaluation and simulation (ADR-027): given a set
+     * of candidate policies and an authorization request, select the applicable ones and run the
+     * deny-overrides engine. Has no persistence dependency, so the two entry points behave
+     * identically once their candidates are in hand.
+     */
+    private Decision decide(String decisionId, List<Policy> candidates, AuthorizationRequest authzRequest) {
         List<Policy> applicable = selector.select(candidates, authzRequest);
         AuthorizationDecision decision = engine.evaluate(applicable, authzRequest);
 
