@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/ricardoqmd/service-policy/compare/v0.3.2...v0.3.3) (2026-07-16)
+
+
+### Features
+
+* add admin-gated policy simulation endpoint ([#139](https://github.com/ricardoqmd/service-policy/issues/139)) ([03de388](https://github.com/ricardoqmd/service-policy/commit/03de38884cc29df0bb4af2563d3b9a8512b6a3a8))
+
 ## [0.3.2](https://github.com/ricardoqmd/service-policy/compare/v0.3.1...v0.3.2) (2026-07-15)
 
 
