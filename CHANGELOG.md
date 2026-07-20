@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5](https://github.com/ricardoqmd/service-policy/compare/v0.3.4...v0.3.5) (2026-07-20)
+
+
+### Documentation
+
+* add ADR-029 per-application configuration ([#145](https://github.com/ricardoqmd/service-policy/issues/145)) ([8b1dbfb](https://github.com/ricardoqmd/service-policy/commit/8b1dbfb35b177bec5aaac3addbd7d46b293243dc))
+
 ## [0.3.4](https://github.com/ricardoqmd/service-policy/compare/v0.3.3...v0.3.4) (2026-07-20)
 
 
