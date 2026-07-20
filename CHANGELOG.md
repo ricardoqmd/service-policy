@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/ricardoqmd/service-policy/compare/v0.3.3...v0.3.4) (2026-07-20)
+
+
+### Documentation
+
+* add ADR-028 action catalogue and wildcard expansion ([#142](https://github.com/ricardoqmd/service-policy/issues/142)) ([27df257](https://github.com/ricardoqmd/service-policy/commit/27df257abbb1ffb00f80f2fccd449e9dccb8b58e))
+
 ## [0.3.3](https://github.com/ricardoqmd/service-policy/compare/v0.3.2...v0.3.3) (2026-07-16)
 
 
