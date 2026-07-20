@@ -154,3 +154,4 @@ catalogue is likewise rejected rather than silently producing an empty action li
 - Applications need to share a common vocabulary (the same verbs across apps) → consider
   whether a shared base catalogue is worth the coupling, given ADR-024's isolation stance.
 - Attribute-level validation is needed at authoring → the resource-type registry above.
+
