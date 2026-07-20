@@ -36,6 +36,7 @@ both are kept for the audit trail.
 | [025](025-policy-list-status-filter.md)        | Policy listing shows all lifecycle states — `?status=` filter (default `all`)              | Accepted |
 | [026](026-composite-policy-identity.md)        | Composite identity (app, policyId) + app-nested routes; app leaves request bodies          | Accepted |
 | [027](027-policy-simulation.md)                | Policy simulation — dry-run evaluation against an unsaved document (admin-gated)           | Accepted |
+| [028](028-action-catalogue.md)                 | Action catalogue per (app, resourceType); `*` expanded at authoring, never stored          | Accepted |
 
 ## Relationships
 
@@ -75,6 +76,12 @@ both are kept for the audit trail.
   whole v1 surface under `/v1/apps/{app}/…`, so the path is the single source of scope;
   `app` leaves every request body. A single read-only cross-app catalogue
   (`GET /v1/policies`) survives for multi-app administrators.
+- **ADR-028 refines ADR-008 and ADR-012.** Actions gain a declared vocabulary per
+  `(app, resourceType)`, administered through the admin surface rather than deployment
+  config. `*` becomes input sugar expanded at authoring against that catalogue and never
+  stored, which removes two problems: policies written with `*` no longer widen silently
+  when a verb is added later, and the set of `(resourceType, action)` pairs becomes
+  enumerable — a precondition for the permissions surface.
 
 ## Notes
 
