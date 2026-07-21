@@ -38,6 +38,7 @@ both are kept for the audit trail.
 | [027](027-policy-simulation.md)                | Policy simulation — dry-run evaluation against an unsaved document (admin-gated)           | Accepted |
 | [028](028-action-catalogue.md)                 | Action catalogue per (app, resourceType); `*` expanded at authoring, never stored          | Accepted |
 | [029](029-per-app-configuration.md)            | Per-application configuration as administrable data, not deployment config                 | Accepted |
+| [030](030-permission-enumeration.md)           | Permission enumeration — three-valued evaluation without an instance (advisory)            | Accepted |
 
 ## Relationships
 
@@ -90,6 +91,13 @@ both are kept for the audit trail.
   move to MongoDB and are administered through the admin surface with the same gate and the
   same `If-Match` contract as policy heads. ADR-013's global markers stay in properties:
   global and deployment-shaped stays in config, per-application becomes data.
+- **ADR-030 completes ADR-004 and depends on ADR-028/ADR-029.** `/permissions` stops being a
+  stub: for every catalogued `(resourceType, action)` the engine evaluates with no instance
+  under three-valued logic, reporting deterministic permits, omitting deterministic denies,
+  and marking instance-dependent pairs `conditional` with the resource attributes the client
+  must supply. The mode is isolated from enforcement by construction — ADR-011/ADR-023 keep an
+  unresolvable operand denying on `/evaluate`, and the build breaks if the two are wired
+  together.
 
 ## Notes
 
