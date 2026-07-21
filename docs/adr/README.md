@@ -38,6 +38,8 @@ both are kept for the audit trail.
 | [027](027-policy-simulation.md)                | Policy simulation — dry-run evaluation against an unsaved document (admin-gated)           | Accepted |
 | [028](028-action-catalogue.md)                 | Action catalogue per (app, resourceType); `*` expanded at authoring, never stored          | Accepted |
 | [029](029-per-app-configuration.md)            | Per-application configuration as administrable data, not deployment config                 | Accepted |
+| [030](030-permission-enumeration.md)           | Permission enumeration — three-valued evaluation without an instance (advisory)            | Accepted |
+
 
 ## Relationships
 
