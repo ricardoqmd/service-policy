@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.6](https://github.com/ricardoqmd/service-policy/compare/v0.3.5...v0.3.6) (2026-07-21)
+
+
+### Documentation
+
+* add ADR-030 permission enumeration ([#149](https://github.com/ricardoqmd/service-policy/issues/149)) ([6d75a2f](https://github.com/ricardoqmd/service-policy/commit/6d75a2fcb7898c07e8bb70d37170bca5c7d0123d))
+
 ## [0.3.5](https://github.com/ricardoqmd/service-policy/compare/v0.3.4...v0.3.5) (2026-07-20)
 
 
