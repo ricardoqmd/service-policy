@@ -71,11 +71,11 @@ bug. The contract states this explicitly so that no consumer treats it as a gate
 For every `(resourceType, action)` in the application's catalogue (ADR-028), the engine
 evaluates the applicable active policies **with no resource instance**. Three outcomes:
 
-| Outcome | Meaning | Reported as |
-|---|---|---|
-| Deterministic **deny** | No instance can change it | **omitted** from the list |
+|         Outcome          |          Meaning          |          Reported as           |
+|--------------------------|---------------------------|--------------------------------|
+| Deterministic **deny**   | No instance can change it | **omitted** from the list      |
 | Deterministic **permit** | No instance can change it | included, `conditional: false` |
-| **Indeterminate** | Depends on the instance | included, `conditional: true` |
+| **Indeterminate**        | Depends on the instance   | included, `conditional: true`  |
 
 Including the indeterminate case is the point of the design. Omitting it would hide controls
 the user can in fact use for some resources — a silent false negative, invisible to whoever
@@ -263,3 +263,4 @@ re-checks. Revisit when propagation latency is a real complaint.
   its own authorization, never a parameter on this one.
 - The catalogue grows large enough that evaluating every pair per request is measurable →
   revisit incremental computation or per-pair caching.
+
