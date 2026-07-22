@@ -11,6 +11,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadDocument;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
@@ -73,15 +74,28 @@ class PolicyWriteResourceTest {
     @Inject
     PolicyVersionRepository versionRepository;
 
+    @Inject
+    ActionCatalogueRepository catalogueRepository;
+
     @BeforeEach
     void clean() {
-        headRepository.deleteAll();
-        versionRepository.deleteAll();
+        wipe();
+        // ADR-028: authoring resolves 'actions' against the catalogue, so 'document' must declare
+        // 'read' before any of these writes can succeed — in both apps this suite touches.
+        ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
+        ActionCatalogueTestSupport.declare(catalogueRepository, "other-app", "document", "read");
     }
 
     @AfterEach
     void cleanup() {
-        clean();
+        wipe();
+    }
+
+    /** Wipes every collection this suite writes to, the catalogue included, so nothing leaks out. */
+    private void wipe() {
+        headRepository.deleteAll();
+        versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
     }
 
     // ── POST create ──────────────────────────────────────────────────────────

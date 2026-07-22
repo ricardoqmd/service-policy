@@ -20,6 +20,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Literal;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
+import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
@@ -53,10 +54,16 @@ class EvaluatePolicyScenariosTest {
     @Inject
     PolicyVersionRepository versionRepository;
 
+    @Inject
+    ActionCatalogueRepository catalogueRepository;
+
     @BeforeEach
     void seedSingleActiveDocumentPolicy() {
         headRepository.deleteAll();
         versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
+        // ADR-028: the seeded policy declares ["*"], which is expanded at create against this entry.
+        ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
         // create (revision=0) then activate version 1 with ifMatch=0L (ADR-020).
         lifecycleStore.create(APP, documentAccessPolicy(), "seed-subject", "seed");
         lifecycleStore.activate(APP, "doc-access", 1, 0L, "seed-subject", "seed");
@@ -66,6 +73,7 @@ class EvaluatePolicyScenariosTest {
     void clearPolicies() {
         headRepository.deleteAll();
         versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
     }
 
     @Test

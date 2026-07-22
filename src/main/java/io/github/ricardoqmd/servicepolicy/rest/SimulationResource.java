@@ -17,6 +17,7 @@ import io.github.ricardoqmd.servicepolicy.config.ServicePolicyConfig;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.evaluation.EvaluationRequest;
 import io.github.ricardoqmd.servicepolicy.evaluation.PolicyEvaluator;
+import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueResolver;
 import io.github.ricardoqmd.servicepolicy.persistence.ConditionDocumentMapper;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyDocumentException;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyDocumentMapper;
@@ -43,11 +44,16 @@ import io.quarkus.security.Authenticated;
  * the ordinary evaluation gate. A non-admin caller gets 403.
  *
  * <p>The candidate {@code policy} is validated exactly as on create — through the same
- * {@link PolicyDocumentMapper#fromDocument} path — <em>before</em> any evaluation runs, so the
- * simulator never evaluates a document that could not have been created (ADR-023, ADR-027). App
- * lives in the path only (ADR-026): a {@code policy} carrying {@code app} is rejected with
- * {@code INVALID_POLICY} (by {@code fromDocument}); a {@code request} carrying {@code app} is
- * rejected with {@code BAD_REQUEST} (at deserialization, via {@link UnknownPropertyMapper}).
+ * {@link PolicyDocumentMapper#fromDocument} path, then the same
+ * {@link ActionCatalogueResolver} — <em>before</em> any evaluation runs, so the simulator never
+ * evaluates a document that could not have been created (ADR-023, ADR-027, ADR-028). "Validated
+ * exactly as on create" is a moving target by design: when create gained catalogue resolution, this
+ * gained it too, or the simulator would happily decide on a draft the author cannot save. It also
+ * means the simulation runs against the <em>expanded</em> action list, which is what would actually
+ * be persisted. App lives in the path only (ADR-026): a {@code policy} carrying {@code app} is
+ * rejected with {@code INVALID_POLICY} (by {@code fromDocument}); a {@code request} carrying
+ * {@code app} is rejected with {@code BAD_REQUEST} (at deserialization, via
+ * {@link UnknownPropertyMapper}).
  */
 @Path("/v1/apps/{app}/policies:simulate")
 @Produces(MediaType.APPLICATION_JSON)
@@ -57,12 +63,18 @@ import io.quarkus.security.Authenticated;
 public class SimulationResource {
 
     private final PolicyEvaluator evaluator;
+    private final ActionCatalogueResolver catalogueResolver;
     private final AuthContext authContext;
     private final ServicePolicyConfig cfg;
     private final PolicyDocumentMapper policyMapper = new PolicyDocumentMapper(new ConditionDocumentMapper());
 
-    SimulationResource(PolicyEvaluator evaluator, AuthContext authContext, ServicePolicyConfig cfg) {
+    SimulationResource(
+            PolicyEvaluator evaluator,
+            ActionCatalogueResolver catalogueResolver,
+            AuthContext authContext,
+            ServicePolicyConfig cfg) {
         this.evaluator = evaluator;
+        this.catalogueResolver = catalogueResolver;
         this.authContext = authContext;
         this.cfg = cfg;
     }
@@ -74,7 +86,10 @@ public class SimulationResource {
                     + " persisting anything and without touching active state (ADR-027). Requires the admin"
                     + " marker (ADR-013); 403 otherwise. The candidate 'policy' is validated exactly as on"
                     + " create — a malformed document or bad operand type (ADR-023) is rejected with 400"
-                    + " INVALID_POLICY before any evaluation runs. Neither 'policy' nor 'request' may carry"
+                    + " INVALID_POLICY before any evaluation runs, and its 'actions' are resolved against the"
+                    + " app's action catalogue (ADR-028): ['*'] is expanded to the declared vocabulary and an"
+                    + " uncatalogued action is likewise a 400 INVALID_POLICY, so what is simulated is what"
+                    + " would be persisted. Neither 'policy' nor 'request' may carry"
                     + " 'app' (ADR-026): it is the path's — a 'policy' that does returns 400 INVALID_POLICY,"
                     + " a 'request' that does returns 400 BAD_REQUEST. Returns the same 200 Decision as"
                     + " /evaluate.")
@@ -106,6 +121,11 @@ public class SimulationResource {
         } catch (PolicyDocumentException e) {
             throw new PolicyValidationException(List.of(new ProblemDetail.InvalidParam("policy", e.getMessage())));
         }
+
+        // Then the catalogue, exactly as create does (ADR-028): '*' expands to the app's declared
+        // vocabulary and an uncatalogued action is rejected. Outside the try/catch above — the
+        // resolver already throws the right problem, and wrapping it would relabel its field.
+        candidate = catalogueResolver.resolve(app, candidate);
 
         // App comes from the path (ADR-026); subject from the JWT. Zero effect — pure (candidate, request).
         String subject = authContext.resolveEffectiveSubject(request.subject());

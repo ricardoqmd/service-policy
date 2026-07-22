@@ -124,12 +124,38 @@ class PolicyEngineTest {
         assertTrue(applicable.isEmpty());
     }
 
+    /**
+     * ADR-028 inversion of the old 'wildcardActionApplies': {@code "*"} is authoring sugar expanded
+     * against the catalogue, never a match-time pattern. A policy that still carries it — only
+     * possible for data stored before ADR-028 — governs no verb and is simply not selected,
+     * so it contributes nothing to the decision.
+     */
     @Test
-    void wildcardActionApplies() {
+    void storedWildcardActionMatchesNoVerb() {
         Policy wildcard = new Policy(
                 "any-document", 1, "document", List.of("*"), CombiningAlgorithm.DENY_OVERRIDES, Effect.DENY, List.of());
-        List<Policy> applicable = selector.select(List.of(wildcard), read0("document:delete"));
-        assertEquals(1, applicable.size());
+
+        assertTrue(selector.select(List.of(wildcard), read0("document:delete")).isEmpty());
+        assertTrue(selector.select(List.of(wildcard), read0("document:read")).isEmpty());
+        assertFalse(wildcard.appliesTo("document", "read"));
+    }
+
+    /** The counterpart: a literal action id is what selection matches on. */
+    @Test
+    void literalActionApplies() {
+        Policy explicit = new Policy(
+                "any-document",
+                1,
+                "document",
+                List.of("read", "delete"),
+                CombiningAlgorithm.DENY_OVERRIDES,
+                Effect.DENY,
+                List.of());
+
+        assertEquals(
+                1, selector.select(List.of(explicit), read0("document:delete")).size());
+        assertTrue(explicit.appliesTo("document", "read"));
+        assertFalse(explicit.appliesTo("document", "update"));
     }
 
     // ---- cross-policy combining ----

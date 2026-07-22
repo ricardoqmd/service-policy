@@ -11,6 +11,7 @@ import jakarta.inject.Inject;
 
 import org.bson.Document;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import io.github.ricardoqmd.servicepolicy.domain.policy.AttributeRef;
@@ -21,6 +22,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Literal;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
+import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadDocument;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
@@ -52,10 +54,27 @@ class ApplicationScopingTest {
     @Inject
     PolicyVersionRepository versionRepository;
 
+    @Inject
+    ActionCatalogueRepository catalogueRepository;
+
+    /**
+     * ADR-028: the catalogue is per-app too, so isolation tests need the vocabulary declared in each
+     * app they author under — including app-b, whose only role in one test is to be the app a policy
+     * is NOT reachable through (a 404, which the catalogue must not turn into a 400).
+     */
+    @BeforeEach
+    void declareCatalogues() {
+        for (String app : List.of("app-a", "app-b", "app-x")) {
+            ActionCatalogueTestSupport.declare(catalogueRepository, app, "resource", "read");
+            ActionCatalogueTestSupport.declare(catalogueRepository, app, "other", "read");
+        }
+    }
+
     @AfterEach
     void clearAll() {
         headRepository.deleteAll();
         versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
     }
 
     // ── Evaluation isolation ──────────────────────────────────────────────────

@@ -135,11 +135,25 @@ catalogue is likewise rejected rather than silently producing an empty action li
 
 - New admin-gated resource for the catalogue under `/v1/apps/{app}/…`, administered by the
   PAP; new collection.
-- Authoring gains two behaviours: `*` expansion and action validation, both in the document
-  mapper path that already validates structure and operand types (ADR-023). No new error
-  code.
+- Authoring gains two behaviours, `*` expansion and action validation, and they live at the
+  single write door — `PolicyLifecycleStore.create`/`append`, which is what guarantees no
+  unexpanded or uncatalogued policy can be stored by any caller — plus the simulate path,
+  since ADR-027 defines simulation as validate-exactly-as-create. The document mapper stays
+  pure: structure and operand types only (ADR-023), no catalogue awareness. No new error code.
 - Stored policies no longer contain `*`. Existing development-stage data with `*` should be
   recreated; there is no production data to migrate.
+- The evaluator no longer honours `*` at match time either: action matching is literal
+  membership. A policy stored with `*` is therefore **inert** — it matches no verb, so it is
+  never selected, and an unselected policy contributes nothing: neither its rules nor its
+  `defaultEffect`. Inert is *not* fail-closed. In particular, under deny-overrides a legacy
+  wildcard DENY would no longer suppress another policy's permit for the same
+  `(resourceType, verb)`, because it is not among the candidates being combined; the effective
+  decision can therefore move from deny to permit. This is accepted rather than mitigated: there
+  is no pre-ADR-028 policy data anywhere at this stage — no production, no development dataset
+  worth preserving — and after this ADR the write door cannot produce a stored `*`. A database
+  that contains one implies writes made outside the engine, which is outside its trust boundary;
+  such a database is to be recreated, as this ADR already requires. No migration and no
+  match-time compatibility shim.
 - Adding a verb to the catalogue is safe by construction — it affects no existing policy.
   Removing one is not, and needs a decision: a verb still referenced by an active policy
   must not be silently deletable (see revisit criteria).

@@ -12,6 +12,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.github.ricardoqmd.servicepolicy.ActionCatalogueTestSupport;
+import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
@@ -46,11 +48,28 @@ class PolicyListStatusFilterTest {
     @Inject
     PolicyVersionRepository versionRepository;
 
+    @Inject
+    ActionCatalogueRepository catalogueRepository;
+
+    /**
+     * One setup method, not two: JUnit does not order multiple {@code @BeforeEach} methods, so a
+     * separate wipe could run after the seeding and undo it. Wiping and declaring in a single
+     * method makes the order a fact of the code rather than of the runner.
+     *
+     * <p>ADR-028: createPolicy() authors ["read"] on 'document' in both apps this suite lists.
+     */
     @BeforeEach
+    void cleanAndDeclareCatalogues() {
+        clean();
+        ActionCatalogueTestSupport.declare(catalogueRepository, "app-a", "document", "read");
+        ActionCatalogueTestSupport.declare(catalogueRepository, "app-b", "document", "read");
+    }
+
     @AfterEach
     void clean() {
         headRepository.deleteAll();
         versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
     }
 
     /**

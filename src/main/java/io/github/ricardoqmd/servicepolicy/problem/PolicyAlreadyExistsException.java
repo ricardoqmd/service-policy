@@ -20,6 +20,7 @@ public class PolicyAlreadyExistsException extends ProblemException {
                 policyId,
                 null,
                 null,
+                null,
                 null);
     }
 }

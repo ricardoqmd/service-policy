@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 
+import io.github.ricardoqmd.servicepolicy.ActionCatalogueTestSupport;
 import io.github.ricardoqmd.servicepolicy.domain.policy.CombiningAlgorithm;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Effect;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
@@ -50,10 +51,18 @@ class PolicyLifecycleIndexesTest {
     @Inject
     PolicyVersionRepository versionRepository;
 
+    @Inject
+    ActionCatalogueRepository catalogueRepository;
+
     @BeforeEach
     void clean() {
         headRepository.deleteAll();
         versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
+        // ADR-028: the two creates below go through the store, which resolves actions against the
+        // catalogue — so both apps must declare 'document' before the migration assertion can run.
+        ActionCatalogueTestSupport.declare(catalogueRepository, "nami", "document", "read");
+        ActionCatalogueTestSupport.declare(catalogueRepository, "kronia", "document", "read");
     }
 
     /**
@@ -67,6 +76,7 @@ class PolicyLifecycleIndexesTest {
     void cleanAndRestoreBootIndexes() {
         headRepository.deleteAll();
         versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
         indexes.ensureIndexes(null);
     }
 

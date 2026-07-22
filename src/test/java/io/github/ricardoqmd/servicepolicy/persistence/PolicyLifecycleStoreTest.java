@@ -12,9 +12,11 @@ import java.util.Optional;
 import jakarta.inject.Inject;
 
 import org.bson.Document;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.github.ricardoqmd.servicepolicy.ActionCatalogueTestSupport;
 import io.github.ricardoqmd.servicepolicy.domain.policy.AttributeRef;
 import io.github.ricardoqmd.servicepolicy.domain.policy.CombiningAlgorithm;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Comparison;
@@ -46,12 +48,26 @@ class PolicyLifecycleStoreTest {
     @Inject
     PolicyVersionRepository versionRepository;
 
+    @Inject
+    ActionCatalogueRepository catalogueRepository;
+
     private final PolicyDocumentMapper contentMapper = new PolicyDocumentMapper(new ConditionDocumentMapper());
 
     @BeforeEach
     void clean() {
+        wipe();
+        // ADR-028: create/append resolve actions against the catalogue, so the write-path tests below
+        // need 'read' declared for 'document' in both apps they write to.
+        ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
+        ActionCatalogueTestSupport.declare(catalogueRepository, OTHER_APP, "document", "read");
+    }
+
+    /** Teardown too, so the seeded catalogue entries do not outlive this class. */
+    @AfterEach
+    void wipe() {
         headRepository.deleteAll();
         versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
     }
 
     @Test

@@ -5,7 +5,8 @@
 ###   GET  /v1/apps/{app}/permissions      subject scope  → cacheable permission list
 ###
 ### Companion to lifecycle-walkthrough.http. Assumes an ACTIVE policy exists in app
-### "rh" (run steps 1–7 of the lifecycle file first).
+### "rh" (run steps 0–7 of the lifecycle file first — step 0 declares the action
+### catalogue, without which the policy cannot be authored at all).
 ###
 ### ⚠️ THE APP IS IN THE PATH (ADR-026), never in the body. Evaluation is scoped by
 ###    (app, resourceType): a policy of one app can NEVER decide a request of another.
@@ -19,6 +20,57 @@
 
 @host = http://localhost:8080
 @auth = Bearer {{jwt}}
+@auth_admin = Bearer {{admin_jwt}}
+
+
+### ============================================================================
+### STEP 0) DECLARE the action catalogue, then author the policy (ADR-028)
+### ============================================================================
+### Only needed if you have not run the lifecycle walkthrough. Skip both requests if
+### app "rh" already has an active doc-access policy.
+###
+### ⚠️ /evaluate NEVER reads the catalogue — it is an AUTHORING-time concern only, and
+###    adds zero reads to the hot path. It appears here purely because the policy the
+###    requests below decide against cannot exist without it.
+
+POST {{host}}/v1/apps/rh/action-catalogue
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "resourceType": "document",
+  "actions": ["create", "read", "update", "delete"]
+}
+
+### EXPECTED  201 Created  (409 CATALOGUE_ENTRY_ALREADY_EXISTS if already declared)
+
+
+### 0b) Author the policy with actions ["*"] — sugar, expanded at authoring
+POST {{host}}/v1/apps/rh/policies
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "policyId": "doc-access",
+  "version": 1,
+  "resourceType": "document",
+  "actions": ["*"],
+  "combiningAlgorithm": "DENY_OVERRIDES",
+  "defaultEffect": "DENY",
+  "rules": [
+    { "id": "assigned-access", "effect": "PERMIT",
+      "condition": { "type": "comparison", "op": "IN",
+        "left": {"ref": "subject.id"}, "right": {"ref": "resource.attr.assignees"} } },
+    { "id": "area-scope", "effect": "PERMIT",
+      "condition": { "type": "comparison", "op": "EQ",
+        "left": {"ref": "resource.attr.area"}, "right": {"ref": "subject.attr.area"} } }
+  ]
+}
+
+### EXPECTED  201 Created, INACTIVE.  What gets PERSISTED is
+###   "actions": ["create","read","update","delete"]   ← the "*" is gone
+### The evaluator therefore never sees a wildcard: selection is a plain membership test
+### on an explicit list. Activate it (see lifecycle step 7) before the requests below.
 
 
 ### ============================================================================
@@ -272,4 +324,9 @@ GET {{host}}/v1/apps/rh/permissions
 ### SCOPING (ADR-024/026): selection is (app, resourceType, verb); the app comes from
 ### the path. resourceType is a per-app namespace — two apps may both define "document"
 ### and never collide.
+###
+### NO WILDCARDS AT EVALUATION (ADR-028): a stored policy's `actions` is always an
+### explicit list, because ["*"] was expanded when the version was authored. Selection
+### is a membership test, the catalogue is never read here, and adding a verb to an
+### app's catalogue changes no decision until someone authors a new version.
 ### ============================================================================
