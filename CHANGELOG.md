@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/ricardoqmd/service-policy/compare/v0.4.0...v0.4.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* use the data collection envelope for the action-catalogue list ([#155](https://github.com/ricardoqmd/service-policy/issues/155)) ([ff057e5](https://github.com/ricardoqmd/service-policy/commit/ff057e562ecf372b203be43bb2daad9b410cd420))
+
 ## [0.4.0](https://github.com/ricardoqmd/service-policy/compare/v0.3.6...v0.4.0) (2026-07-22)
 
 
