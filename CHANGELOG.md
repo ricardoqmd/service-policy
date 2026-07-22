@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/ricardoqmd/service-policy/compare/v0.3.6...v0.4.0) (2026-07-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* policy authoring now requires the action catalogue of the policy's (app, resourceType) to be declared and every action to be present in it; actions ["*"] is expanded at authoring instead of resolved at evaluation time, and the evaluator no longer honours a stored "*".
+
+### Features
+
+* add per-app action catalogue with wildcard expansion at authoring ([#152](https://github.com/ricardoqmd/service-policy/issues/152)) ([70a1b5d](https://github.com/ricardoqmd/service-policy/commit/70a1b5db8a60ad5000930191b960a0566f83d293))
+
 ## [0.3.6](https://github.com/ricardoqmd/service-policy/compare/v0.3.5...v0.3.6) (2026-07-21)
 
 
