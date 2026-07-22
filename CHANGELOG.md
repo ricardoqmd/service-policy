@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/ricardoqmd/service-policy/compare/v0.4.1...v0.4.2) (2026-07-22)
+
+
+### Features
+
+* add per-application configuration resource ([#158](https://github.com/ricardoqmd/service-policy/issues/158)) ([89e2eb2](https://github.com/ricardoqmd/service-policy/commit/89e2eb2fa3f797cea57efbf870afdf4b30ab3a75))
+
 ## [0.4.1](https://github.com/ricardoqmd/service-policy/compare/v0.4.0...v0.4.1) (2026-07-22)
 
 
