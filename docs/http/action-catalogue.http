@@ -77,14 +77,16 @@ GET {{host}}/v1/apps/rh/action-catalogue
 Authorization: {{auth_admin}}
 
 ### EXPECTED  200 OK
-### { "entries": [
+### { "data": [
 ###     { "app":"rh", "resourceType":"document", "actions":[…], "revision":1 },
 ###     { "app":"rh", "resourceType":"request",  "actions":[…], "revision":1 }
 ### ]}
-### Sorted by resourceType. DELIBERATELY NOT PAGINATED: a catalogue is a bounded
-### vocabulary (tens of entries), and its consumers — wildcard expansion and permission
-### enumeration — need it WHOLE. A partial catalogue is not a smaller answer, it is a
-### wrong one.
+### Same "data" envelope key as every other collection in this API (GET /v1/policies,
+### GET /v1/apps/{app}/policies) — but with NO "pagination" block, because this listing
+### is DELIBERATELY NOT PAGINATED: a catalogue is a bounded vocabulary (tens of entries),
+### and its consumers — wildcard expansion and permission enumeration — need it WHOLE.
+### A partial catalogue is not a smaller answer, it is a wrong one.
+### Sorted by resourceType.
 
 
 ### ----------------------------------------------------------------------------
