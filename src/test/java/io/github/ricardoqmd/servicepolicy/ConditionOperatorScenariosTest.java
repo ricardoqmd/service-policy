@@ -8,6 +8,7 @@ import java.util.List;
 import jakarta.inject.Inject;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import io.github.ricardoqmd.servicepolicy.domain.policy.And;
@@ -22,6 +23,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Or;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
+import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
@@ -54,10 +56,24 @@ class ConditionOperatorScenariosTest {
     @Inject
     PolicyVersionRepository versionRepository;
 
+    @Inject
+    ActionCatalogueRepository catalogueRepository;
+
+    /**
+     * ADR-028: every policy seeded here governs 'doc' with either ["*"] or ["read"], so 'doc' must
+     * declare its vocabulary first. 'write' is in it because one test asserts that a ["read"] policy
+     * does NOT match a write — a verb the app has, but that policy does not govern.
+     */
+    @BeforeEach
+    void declareCatalogue() {
+        ActionCatalogueTestSupport.declare(catalogueRepository, APP, "doc", "read", "write");
+    }
+
     @AfterEach
     void clearAll() {
         headRepository.deleteAll();
         versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
     }
 
     // ── NOT_IN ────────────────────────────────────────────────────────────────────────────────────
@@ -436,7 +452,7 @@ class ConditionOperatorScenariosTest {
     @Test
     @TestSecurity(user = "test-user")
     void verbBasedPolicyMatchesExactVerb() {
-        // actions=["read"]: contains("*")→false, contains("read")→true → policy selected
+        // actions=["read"]: contains("read")→true → policy selected
         activateFull(new Policy(
                 "verb-exact", 1, "doc", List.of("read"), CombiningAlgorithm.DENY_OVERRIDES, Effect.PERMIT, List.of()));
 
@@ -448,7 +464,7 @@ class ConditionOperatorScenariosTest {
     @Test
     @TestSecurity(user = "test-user")
     void verbBasedPolicyDoesNotMatchDifferentVerb() {
-        // actions=["read"]: contains("*")→false, contains("write")→false → policy not selected
+        // actions=["read"]: contains("write")→false → policy not selected
         activateFull(new Policy(
                 "verb-exact", 1, "doc", List.of("read"), CombiningAlgorithm.DENY_OVERRIDES, Effect.PERMIT, List.of()));
 

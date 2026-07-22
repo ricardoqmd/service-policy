@@ -1,0 +1,445 @@
+### ============================================================================
+### service-policy — ACTION CATALOGUE walkthrough (ADR-028)
+###   POST   /v1/apps/{app}/action-catalogue                 declare a resource type
+###   GET    /v1/apps/{app}/action-catalogue                 list the whole catalogue
+###   GET    /v1/apps/{app}/action-catalogue/{resourceType}  one entry (+ ETag)
+###   PUT    /v1/apps/{app}/action-catalogue/{resourceType}  replace the action set
+###   DELETE /v1/apps/{app}/action-catalogue/{resourceType}  undeclare it
+###
+### Open in VS Code (REST Client) or IntelliJ HTTP Client; run top-down.
+### Start the app first:  ./mvnw quarkus:dev    (Docker running for MongoDB + OIDC)
+###
+### WHAT THE CATALOGUE IS FOR (ADR-028):
+###   An application declares, per resource type, the set of actions that exist:
+###       kronia / document → [create, read, update, delete]
+###       kronia / request  → [create, read, submit, approve, reject]
+###   Two things follow, and they are the whole point:
+###   1) `actions: ["*"]` in a policy is EXPANDED AT AUTHORING against this list and
+###      the explicit list is stored. `*` never reaches storage, never reaches the
+###      evaluator. Adding a verb later therefore changes NO existing policy — widening
+###      one is an explicit, versioned authoring act.
+###   2) A policy naming a verb the app does not declare is rejected at authoring with
+###      400 INVALID_POLICY. Declare the vocabulary first, then write policies about it.
+###
+### /evaluate NEVER reads the catalogue — this adds nothing to the hot path.
+###
+### Admin-gated (ADR-013) and nested under the app (ADR-026): `app` must NOT appear in
+### any request body (sending it → 400 BAD_REQUEST, even if it matches the path).
+### Writes are conditional: If-Match: "<revision>" (the ETag from a GET).
+###   Missing If-Match → 428 ; stale → 412.
+### Errors are RFC 9457 application/problem+json (see docs/ERRORS.md).
+### ============================================================================
+
+@host = http://localhost:8080
+@auth_admin = Bearer {{admin_jwt}}
+
+
+### ----------------------------------------------------------------------------
+### 1) DECLARE the vocabulary of "document" in app "rh"  →  201 Created
+### ----------------------------------------------------------------------------
+### Note: NO "app" field in the body — the path carries it. And no "*" in the list:
+### the catalogue IS the explicit set that "*" expands to.
+POST {{host}}/v1/apps/rh/action-catalogue
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "resourceType": "document",
+  "actions": ["create", "read", "update", "delete"]
+}
+
+### EXPECTED  201 Created, ETag: "1"
+### { "app": "rh", "resourceType": "document",
+###   "actions": ["create","read","update","delete"], "revision": 1 }
+### `app` IS returned in responses (the server supplies it) — it is only absent from
+### request bodies.
+
+
+### 2) DECLARE a second resource type — vocabularies stay apart per resource type
+POST {{host}}/v1/apps/rh/action-catalogue
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "resourceType": "request",
+  "actions": ["create", "read", "submit", "approve", "reject"]
+}
+
+### EXPECTED  201 Created, ETag: "1"
+### "approve" belongs to `request`, not to `document`. A catalogue keyed by app alone
+### would have mixed them and made "*" on a document expand to "approve".
+
+
+### ----------------------------------------------------------------------------
+### 3) LIST the whole catalogue of the app  →  200
+### ----------------------------------------------------------------------------
+GET {{host}}/v1/apps/rh/action-catalogue
+Authorization: {{auth_admin}}
+
+### EXPECTED  200 OK
+### { "entries": [
+###     { "app":"rh", "resourceType":"document", "actions":[…], "revision":1 },
+###     { "app":"rh", "resourceType":"request",  "actions":[…], "revision":1 }
+### ]}
+### Sorted by resourceType. DELIBERATELY NOT PAGINATED: a catalogue is a bounded
+### vocabulary (tens of entries), and its consumers — wildcard expansion and permission
+### enumeration — need it WHOLE. A partial catalogue is not a smaller answer, it is a
+### wrong one.
+
+
+### ----------------------------------------------------------------------------
+### 4) GET one entry  →  200, read the ETag (needed to write)
+### ----------------------------------------------------------------------------
+GET {{host}}/v1/apps/rh/action-catalogue/document
+Authorization: {{auth_admin}}
+
+### EXPECTED  200 OK.  Headers: ETag: "1"
+
+
+### ============================================================================
+### WHAT THE CATALOGUE DOES TO AUTHORING — the reason it exists
+### ============================================================================
+
+### 5) Create a policy with actions ["*"]  →  201, but "*" is NOT what gets stored
+POST {{host}}/v1/apps/rh/policies
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "policyId": "doc-access",
+  "version": 1,
+  "resourceType": "document",
+  "actions": ["*"],
+  "combiningAlgorithm": "DENY_OVERRIDES",
+  "defaultEffect": "DENY",
+  "rules": [
+    { "id": "assigned-access", "effect": "PERMIT",
+      "condition": { "type": "comparison", "op": "IN",
+        "left": {"ref": "subject.id"}, "right": {"ref": "resource.attr.assignees"} } }
+  ]
+}
+
+### EXPECTED  201 Created
+
+
+### 6) …read the stored version back — the explicit list, in catalogue order
+GET {{host}}/v1/apps/rh/policies/doc-access/versions/1
+Authorization: {{auth_admin}}
+
+### EXPECTED  200  →  "actions": ["create","read","update","delete"]   ← no "*"
+### THIS is the fail-safe property: if someone adds "export" to the catalogue tomorrow,
+### this policy still governs exactly these four verbs. Widening it requires appending
+### a new version — an explicit, audited act.
+
+
+### 7) 400 INVALID_POLICY — an action the app does not declare
+POST {{host}}/v1/apps/rh/policies
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "policyId": "bad-verb",
+  "version": 1,
+  "resourceType": "document",
+  "actions": ["read", "export", "shred"],
+  "combiningAlgorithm": "DENY_OVERRIDES",
+  "defaultEffect": "DENY",
+  "rules": []
+}
+
+### EXPECTED  400  code: "INVALID_POLICY"
+### invalidParams: one entry PER unknown action (field "actions") — "export" AND
+### "shred", so the author fixes them in one pass rather than one round-trip each.
+
+
+### 8) 400 INVALID_POLICY — "*" mixed with a named verb
+POST {{host}}/v1/apps/rh/policies
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "policyId": "mixed-wildcard",
+  "version": 1,
+  "resourceType": "document",
+  "actions": ["*", "read"],
+  "combiningAlgorithm": "DENY_OVERRIDES",
+  "defaultEffect": "DENY",
+  "rules": []
+}
+
+### EXPECTED  400  →  "'*' must be the only element of 'actions'"
+### "*" means "all of them"; mixing it with a verb is a contradiction, not a union.
+
+
+### 9) 400 INVALID_POLICY — a resource type with no catalogue at all
+POST {{host}}/v1/apps/rh/policies
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "policyId": "undeclared-type",
+  "version": 1,
+  "resourceType": "invoice",
+  "actions": ["*"],
+  "combiningAlgorithm": "DENY_OVERRIDES",
+  "defaultEffect": "DENY",
+  "rules": []
+}
+
+### EXPECTED  400  →  "no action catalogue for resource type 'invoice' in this app;
+###                    declare the catalogue before authoring"
+### An empty catalogue blocks authoring, which is correct: "*" against nothing would
+### silently produce an empty action list — a policy that governs nothing.
+
+
+### 10) Simulation validates identically (ADR-027 + ADR-028)
+POST {{host}}/v1/apps/rh/policies:simulate
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "policy": {
+    "policyId": "draft", "version": 1, "resourceType": "document",
+    "actions": ["*"], "combiningAlgorithm": "DENY_OVERRIDES", "defaultEffect": "DENY",
+    "rules": [
+      { "id": "assigned-access", "effect": "PERMIT",
+        "condition": { "type": "comparison", "op": "IN",
+          "left": {"ref": "subject.id"}, "right": {"ref": "resource.attr.assignees"} } }
+    ]
+  },
+  "request": {
+    "action": "document:read",
+    "resource": { "type": "document", "id": "d1", "attributes": { "assignees": ["test-user"] } }
+  }
+}
+
+### EXPECTED  200  →  allowed: true
+### The candidate's "*" is expanded before evaluation, so what you simulate is what
+### would be persisted. An uncatalogued action here is the same 400 INVALID_POLICY as
+### on create — the simulator never decides on a draft you could not save.
+
+
+### ============================================================================
+### CHANGING A CATALOGUE — adding is free, removing is guarded
+### ============================================================================
+
+### 11) PUT — ADD a verb.  Always safe: no existing policy changes meaning.
+### The body is the FULL new set (a replace, not a merge).
+PUT {{host}}/v1/apps/rh/action-catalogue/document
+Authorization: {{auth_admin}}
+Content-Type: application/json
+If-Match: "1"
+
+{ "actions": ["create", "read", "update", "delete", "export"] }
+
+### EXPECTED  200 OK, ETag: "2"
+### doc-access (step 5) still governs only the original four verbs — "export" reaches
+### it only if someone appends a new version. That is the ADR-028 guarantee.
+
+
+### 12) 428 PRECONDITION_REQUIRED — write without If-Match
+PUT {{host}}/v1/apps/rh/action-catalogue/document
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "actions": ["create", "read"] }
+
+### EXPECTED  428  code: "PRECONDITION_REQUIRED"
+### (An unparseable If-Match, e.g. If-Match: "abc", is refused the same way: never a
+### blind write.)
+
+
+### 13) 412 PRECONDITION_FAILED — stale If-Match
+PUT {{host}}/v1/apps/rh/action-catalogue/document
+Authorization: {{auth_admin}}
+Content-Type: application/json
+If-Match: "1"
+
+{ "actions": ["create", "read"] }
+
+### EXPECTED  412  code: "PRECONDITION_FAILED"  (extension: currentRevision: 2)
+### The revision moved to 2 in step 11. Reload, re-apply, retry — the lost-update guard.
+### Note: no `policyId` member here; a catalogue entry has no policy id.
+
+
+### ----------------------------------------------------------------------------
+### 14) Activate doc-access, so an ACTIVE policy governs "delete"
+### ----------------------------------------------------------------------------
+GET {{host}}/v1/apps/rh/policies/doc-access
+Authorization: {{auth_admin}}
+
+### → read the ETag ("0" right after create), then:
+
+POST {{host}}/v1/apps/rh/policies/doc-access/activate
+Authorization: {{auth_admin}}
+Content-Type: application/json
+If-Match: "0"
+
+{ "version": 1 }
+
+### EXPECTED  200 OK, ETag: "1"
+
+
+### 15) 409 ACTION_IN_USE — remove a verb an ACTIVE policy still governs
+### Use the entry's current ETag ("2" after step 11) as If-Match.
+PUT {{host}}/v1/apps/rh/action-catalogue/document
+Authorization: {{auth_admin}}
+Content-Type: application/json
+If-Match: "2"
+
+{ "actions": ["create", "read", "update", "export"] }
+
+### EXPECTED  409  code: "ACTION_IN_USE"
+### {
+###   "detail": "Action(s) [delete] of resource type 'document' in app 'rh' are
+###              referenced by active policies [doc-access].",
+###   "policyIds": ["doc-access"]        ← exactly what stands in the way
+### }
+### Nothing was written: the entry still lists "delete". This is the safe default
+### ADR-028 leaves in place until a deprecation contract is decided.
+### An INACTIVE policy never blocks — it decides nothing.
+
+
+### 16) 409 ACTION_IN_USE — deleting the entry is removing every action at once
+DELETE {{host}}/v1/apps/rh/action-catalogue/document
+Authorization: {{auth_admin}}
+If-Match: "2"
+
+### EXPECTED  409  code: "ACTION_IN_USE"  (same policyIds)
+
+
+### 17) Deactivate the policy — now nothing governs "delete"
+POST {{host}}/v1/apps/rh/policies/doc-access/deactivate
+Authorization: {{auth_admin}}
+Content-Type: application/json
+If-Match: "1"
+
+{ "changeReason": "retiring before narrowing the catalogue" }
+
+### EXPECTED  200 OK, ETag: "2"
+
+
+### 18) …and the same removal now succeeds
+PUT {{host}}/v1/apps/rh/action-catalogue/document
+Authorization: {{auth_admin}}
+Content-Type: application/json
+If-Match: "2"
+
+{ "actions": ["create", "read", "update", "export"] }
+
+### EXPECTED  200 OK, ETag: "3"  →  "delete" is gone from the vocabulary
+
+
+### ----------------------------------------------------------------------------
+### 19) DELETE the entry  →  204 No Content
+### ----------------------------------------------------------------------------
+DELETE {{host}}/v1/apps/rh/action-catalogue/document
+Authorization: {{auth_admin}}
+If-Match: "3"
+
+### EXPECTED  204 No Content (empty body)
+### Afterwards, policies of resourceType "document" can no longer be authored in this
+### app until the catalogue is declared again. Existing policies are untouched —
+### their actions were expanded and stored long ago.
+
+
+### ============================================================================
+### PER-APP ISOLATION (ADR-024/026) — the catalogue is scoped like everything else
+### ============================================================================
+
+### 20) The SAME resourceType in a DIFFERENT app → 201, not 409
+POST {{host}}/v1/apps/nami/action-catalogue
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "resourceType": "document", "actions": ["read", "publish"] }
+
+### EXPECTED  201 Created — identity is (app, resourceType). Two independent entries
+### with independent action sets and independent revisions.
+
+
+### 21) …and an action declared in one app is UNKNOWN in another
+POST {{host}}/v1/apps/rh/policies
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "policyId": "cross-app-verb",
+  "version": 1,
+  "resourceType": "document",
+  "actions": ["publish"],
+  "combiningAlgorithm": "DENY_OVERRIDES",
+  "defaultEffect": "DENY",
+  "rules": []
+}
+
+### EXPECTED  400  code: "INVALID_POLICY"
+### "publish" exists in nami's vocabulary, not in rh's. No shared base catalogue —
+### ADR-024's isolation stance holds here too.
+
+
+### 22) 404 CATALOGUE_ENTRY_NOT_FOUND — another app's entry is invisible
+GET {{host}}/v1/apps/kronia/action-catalogue/document
+Authorization: {{auth_admin}}
+
+### EXPECTED  404  code: "CATALOGUE_ENTRY_NOT_FOUND"
+
+
+### ============================================================================
+### REMAINING ERROR CONTRACTS
+### ============================================================================
+
+### 23) 409 CATALOGUE_ENTRY_ALREADY_EXISTS — declaring a resource type twice
+POST {{host}}/v1/apps/nami/action-catalogue
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "resourceType": "document", "actions": ["read"] }
+
+### EXPECTED  409  code: "CATALOGUE_ENTRY_ALREADY_EXISTS"
+### Create is not an update — use PUT to change the action set.
+
+
+### 24) 400 BAD_REQUEST — `app` in the body (ADR-026)
+POST {{host}}/v1/apps/nami/action-catalogue
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "app": "nami", "resourceType": "ticket", "actions": ["read"] }
+
+### EXPECTED  400  →  "'app' must not be present in the body; it is determined by the path."
+### Rejected for EXISTING, not for disagreeing.
+
+
+### 25) 400 BAD_REQUEST — "*" as a catalogue action
+POST {{host}}/v1/apps/nami/action-catalogue
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "resourceType": "ticket", "actions": ["*"] }
+
+### EXPECTED  400  →  "'*' is not a catalogue action; the catalogue is the explicit
+###                    set it expands to."
+### Also 400: an empty `actions`, a blank element, a duplicate element, a blank
+### `resourceType`. These are BAD_REQUEST, not INVALID_POLICY — a catalogue entry is
+### not a policy document.
+
+
+### 26) 403 FORBIDDEN — non-admin token
+GET {{host}}/v1/apps/nami/action-catalogue
+Authorization: Bearer {{jwt}}
+
+### EXPECTED  403  code: "FORBIDDEN"  (every catalogue operation is admin-gated)
+
+
+### ============================================================================
+### HOW TO OBTAIN TOKENS (dev)
+### ----------------------------------------------------------------------------
+### In quarkus:dev the OIDC dev services start a Keycloak. Get tokens via the Dev UI
+### (http://localhost:8080/q/dev) → OIDC. {{admin_jwt}} must carry the admin marker
+### (role "authz-admin" by default; configurable per ADR-013).
+###
+### RELATED FILES:
+###   lifecycle-walkthrough.http   full policy lifecycle (starts by declaring a catalogue)
+###   evaluation-endpoints.http    /evaluate, /evaluate/batch, /permissions
+### ============================================================================

@@ -82,8 +82,13 @@ public class PolicyResource {
             summary = "Create a policy",
             description = "Creates a new inactive policy in the given app (ADR-014, ADR-019, ADR-026). Requires"
                     + " the admin marker. The body must NOT carry an 'app' field — it is determined by"
-                    + " the path. Returns 400 if the body is malformed or carries 'app', 409 if a policy"
-                    + " with the same id already exists IN THIS APP. Not evaluable until activated.")
+                    + " the path. 'actions' is validated against the action catalogue of this app's"
+                    + " resourceType (ADR-028): an uncatalogued action, or a resourceType the app has not"
+                    + " declared at all, is a 400 INVALID_POLICY. 'actions': ['*'] is expanded to the full"
+                    + " catalogue list AT AUTHORING, so the persisted version carries the explicit list and"
+                    + " a verb added to the catalogue later does not widen it. Returns 400 if the body is"
+                    + " malformed or carries 'app', 409 if a policy with the same id already exists IN THIS"
+                    + " APP. Not evaluable until activated.")
     public Response create(@PathParam("app") String app, Map<String, Object> body) {
         requireAdmin();
 
@@ -110,8 +115,12 @@ public class PolicyResource {
     @Operation(
             summary = "Append a new version",
             description = "Appends an inactive version N+1 (ADR-019). Requires the admin marker and an"
-                    + " If-Match header with the current ETag. Returns 428 if If-Match is absent,"
-                    + " 412 if stale, 404 if policy unknown, 400 if body invalid.")
+                    + " If-Match header with the current ETag. The new version's 'actions' is validated"
+                    + " against the action catalogue exactly as on create (ADR-028) — an uncatalogued"
+                    + " action or an undeclared resourceType is a 400 INVALID_POLICY, and ['*'] is"
+                    + " expanded to the explicit catalogue list before the version is stored. Appending"
+                    + " is how an existing policy is widened after the catalogue grows. Returns 428 if"
+                    + " If-Match is absent, 412 if stale, 404 if policy unknown, 400 if body invalid.")
     public Response append(
             @PathParam("app") String app,
             @PathParam("id") String id,

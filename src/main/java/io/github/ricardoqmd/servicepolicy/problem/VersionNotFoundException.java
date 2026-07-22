@@ -25,6 +25,7 @@ public class VersionNotFoundException extends ProblemException {
                 policyId,
                 null,
                 requestedVersion,
+                null,
                 null);
     }
 }

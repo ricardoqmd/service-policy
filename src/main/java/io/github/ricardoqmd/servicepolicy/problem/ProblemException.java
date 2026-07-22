@@ -22,7 +22,8 @@ public class ProblemException extends RuntimeException {
     }
 
     public ProblemDetail toProblemDetail() {
-        return new ProblemDetail(typeUri(code), code, defaultTitle(code), status, getMessage(), null, null, null, null);
+        return new ProblemDetail(
+                typeUri(code), code, defaultTitle(code), status, getMessage(), null, null, null, null, null);
     }
 
     protected static String typeUri(String code) {
@@ -39,6 +40,9 @@ public class ProblemException extends RuntimeException {
             case "VERSION_NOT_FOUND" -> "Version not found";
             case "FORBIDDEN" -> "Forbidden";
             case "BAD_REQUEST" -> "Bad request";
+            case "CATALOGUE_ENTRY_ALREADY_EXISTS" -> "Action catalogue entry already exists";
+            case "CATALOGUE_ENTRY_NOT_FOUND" -> "Action catalogue entry not found";
+            case "ACTION_IN_USE" -> "Action in use";
             default -> code;
         };
     }

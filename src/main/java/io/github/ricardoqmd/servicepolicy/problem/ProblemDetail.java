@@ -14,7 +14,8 @@ public record ProblemDetail(
         String policyId,
         Long currentRevision,
         Integer requestedVersion,
-        List<InvalidParam> invalidParams) {
+        List<InvalidParam> invalidParams,
+        List<String> policyIds) {
 
     public record InvalidParam(String field, String reason) {}
 }

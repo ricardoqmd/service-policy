@@ -31,6 +31,12 @@ import io.github.ricardoqmd.servicepolicy.problem.VersionNotFoundException;
  *
  * <p>After the evaluator cutover (ADR-021) this store is the sole source of policy data for reads,
  * writes, activation, and evaluation; the legacy {@code policies} collection is abandoned.
+ *
+ * <p>Every persisted write also passes through {@link ActionCatalogueResolver} first (ADR-028), so
+ * {@code '*'} is expanded and uncatalogued actions are rejected <em>here</em> rather than in the
+ * REST layer. The store is the door that guarantees no unexpanded or uncatalogued policy is ever
+ * stored, for the same reason {@code POLICY_ALREADY_EXISTS} lives here and not upstream: an
+ * invariant of the stored data belongs to whatever owns the storage.
  */
 // @Singleton (not @ApplicationScoped): stateless bean, no proxy needed (see ADR-009).
 @Singleton
@@ -41,12 +47,17 @@ public class PolicyLifecycleStore {
 
     private final PolicyHeadRepository headRepository;
     private final PolicyVersionRepository versionRepository;
+    private final ActionCatalogueResolver catalogueResolver;
     private final PolicyLifecycleDocumentMapper mapper =
             new PolicyLifecycleDocumentMapper(new PolicyDocumentMapper(new ConditionDocumentMapper()));
 
-    PolicyLifecycleStore(PolicyHeadRepository headRepository, PolicyVersionRepository versionRepository) {
+    PolicyLifecycleStore(
+            PolicyHeadRepository headRepository,
+            PolicyVersionRepository versionRepository,
+            ActionCatalogueResolver catalogueResolver) {
         this.headRepository = headRepository;
         this.versionRepository = versionRepository;
+        this.catalogueResolver = catalogueResolver;
     }
 
     /**
@@ -130,8 +141,11 @@ public class PolicyLifecycleStore {
      * that legitimate case as an attempt to mutate another app's policy.
      *
      * @throws PolicyAlreadyExistsException (409) if version 1 already exists <em>in this app</em>.
+     * @throws io.github.ricardoqmd.servicepolicy.problem.PolicyValidationException (400) if the
+     *     actions are not catalogued in this app (ADR-028).
      */
     public void create(String app, Policy policy, String callerSubject, String changeReason) {
+        policy = catalogueResolver.resolve(app, policy);
         String policyId = policy.id();
         Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
 
@@ -184,9 +198,12 @@ public class PolicyLifecycleStore {
      * @return the new version number.
      * @throws PreconditionFailedException (412) if {@code ifMatch} is stale.
      * @throws PolicyNotFoundException (404) if no head exists for {@code (app, policyId)}.
+     * @throws io.github.ricardoqmd.servicepolicy.problem.PolicyValidationException (400) if the
+     *     actions are not catalogued in this app (ADR-028).
      */
     public int append(
             String app, String policyId, Policy content, long ifMatch, String callerSubject, String changeReason) {
+        content = catalogueResolver.resolve(app, content);
         if (!headExists(app, policyId)) {
             throw new PolicyNotFoundException(app, policyId);
         }

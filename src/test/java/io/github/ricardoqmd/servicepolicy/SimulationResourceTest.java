@@ -20,6 +20,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Effect;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
+import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
@@ -58,11 +59,18 @@ class SimulationResourceTest {
     @Inject
     PolicyVersionRepository versionRepository;
 
+    @Inject
+    ActionCatalogueRepository catalogueRepository;
+
     @BeforeEach
     void clean() {
         RestAssured.urlEncodingEnabled = false;
         headRepository.deleteAll();
         versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
+        // ADR-028: simulate validates the candidate exactly as create does, so the drafts below —
+        // all ["*"] on 'document' — need the app's vocabulary declared just like a real create would.
+        ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
     }
 
     @AfterEach
@@ -70,6 +78,7 @@ class SimulationResourceTest {
         RestAssured.urlEncodingEnabled = true;
         headRepository.deleteAll();
         versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
     }
 
     // ── The document is evaluated, not the head ──────────────────────────────

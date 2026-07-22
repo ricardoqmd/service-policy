@@ -12,6 +12,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
@@ -52,15 +53,26 @@ class PolicyActivationResourceTest {
     @Inject
     PolicyVersionRepository versionRepository;
 
+    @Inject
+    ActionCatalogueRepository catalogueRepository;
+
     @BeforeEach
     void clean() {
-        headRepository.deleteAll();
-        versionRepository.deleteAll();
+        wipe();
+        // ADR-028: createPolicy() authors actions ["read"] on 'document', which must be catalogued.
+        ActionCatalogueTestSupport.declare(catalogueRepository, "test-app", "document", "read");
     }
 
     @AfterEach
     void cleanup() {
-        clean();
+        wipe();
+    }
+
+    /** Wipes every collection this suite writes to, the catalogue included, so nothing leaks out. */
+    private void wipe() {
+        headRepository.deleteAll();
+        versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
     }
 
     // ── POST /{id}/activate — happy path ─────────────────────────────────────

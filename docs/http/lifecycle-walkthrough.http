@@ -19,6 +19,10 @@
 ###   - Identity is COMPOSITE (app, policyId): "doc-access" can exist in `rh` AND in
 ###     `nami` at the same time. They are two different policies.
 ###   - `resourceType` is a per-app namespace: use "document", never "rh:document".
+###   - The app must DECLARE the actions of a resource type before any policy about it
+###     can be authored (ADR-028) — step 0 below. `actions: ["*"]` is expanded against
+###     that catalogue AT AUTHORING and the explicit list is stored; `*` never reaches
+###     storage or the evaluator. See action-catalogue.http for the full surface.
 ###   - Create leaves the policy INACTIVE. It is NOT evaluable until activated.
 ###   - Versions are append-only (PUT adds v2, v3…); you activate an EXPLICIT version.
 ###   - Writes are conditional: If-Match: "<revision>" (the ETag from a GET).
@@ -33,9 +37,31 @@
 
 
 ### ----------------------------------------------------------------------------
+### 0) DECLARE the action catalogue of "document" in app "rh" (ADR-028)  →  201
+### ----------------------------------------------------------------------------
+### Without this, every create below fails with 400 INVALID_POLICY: "no action
+### catalogue for resource type 'document' in this app; declare the catalogue before
+### authoring". Declare the vocabulary first, then write policies about it.
+POST {{host}}/v1/apps/rh/action-catalogue
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "resourceType": "document",
+  "actions": ["create", "read", "update", "delete"]
+}
+
+### EXPECTED  201 Created, ETag: "1"
+### The same declaration is needed in app "nami" before step 11.
+
+
+### ----------------------------------------------------------------------------
 ### 1) CREATE a policy in app "rh"  →  201 Created, INACTIVE
 ### ----------------------------------------------------------------------------
 ### Note: NO "app" field in the body — the path carries it.
+### `actions: ["*"]` is SUGAR: it is expanded against the step-0 catalogue and what
+### gets PERSISTED is ["create","read","update","delete"] (verify in step 5). Adding a
+### verb to the catalogue later will NOT widen this policy — that needs a new version.
 POST {{host}}/v1/apps/rh/policies
 Authorization: {{auth_admin}}
 Content-Type: application/json
@@ -122,10 +148,12 @@ If-Match: "0"
 ### ----------------------------------------------------------------------------
 ### 5) LIST versions
 ### ----------------------------------------------------------------------------
-GET {{host}}/v1/apps/rh/policies/doc-access/versions
+GET {{host}}/v1/apps/rh/policies/doc-access/versions?view=full
 Authorization: {{auth_admin}}
 
 ### EXPECTED  200 — data: [ {policyId, app:"rh", version:1, …}, {… version:2 …} ]
+### Look at `actions` in the content: ["create","read","update","delete"] — NOT ["*"].
+### That is ADR-028 expansion at authoring; `*` is gone by the time anything is stored.
 
 
 ### ----------------------------------------------------------------------------
@@ -213,6 +241,18 @@ Content-Type: application/json
 ### This is what R026 fixed: it used to be rejected with a misleading
 ### "app is immutable" error. Now they coexist as two independent policies.
 ### ============================================================================
+
+### 11a) The catalogue is per-app too — nami must declare its own vocabulary first.
+### Note it need not match rh's: two apps may both define "document" with different
+### verbs and never collide (ADR-024/026/028).
+POST {{host}}/v1/apps/nami/action-catalogue
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "resourceType": "document", "actions": ["read", "update"] }
+
+### EXPECTED  201 Created — the same resourceType in another app is a DIFFERENT entry.
+
 
 ### 11) Create "doc-access" AGAIN — but in app "nami"  →  201 (not 409!)
 POST {{host}}/v1/apps/nami/policies
@@ -540,6 +580,8 @@ Content-Type: application/json
 ###
 ### SURFACE (ADR-026):
 ###   /v1/apps/{app}/policies[/{id}[/activate|/deactivate|/versions[/{v}]]]
+###   /v1/apps/{app}/policies:simulate
+###   /v1/apps/{app}/action-catalogue[/{resourceType}]   ← ADR-028, see action-catalogue.http
 ###   /v1/apps/{app}/evaluate[/batch]
 ###   /v1/apps/{app}/permissions
 ###   /v1/policies                    ← cross-app catalogue, READ-ONLY (?app= ?status=)
@@ -548,6 +590,9 @@ Content-Type: application/json
 ###   Identity     (app, policyId). The app comes from the PATH; `app` must NOT be in
 ###                the body (400 if present, even if it matches).
 ###   resourceType Per-app namespace: "document", NOT "rh:document".
+###   actions      Must all be in the app's catalogue for that resourceType (ADR-028);
+###                ["*"] expands to the whole catalogue AT AUTHORING and is never
+###                stored. An unknown verb, or a "*" mixed with a verb, → 400.
 ###   Operators:   EQ, NEQ, IN, NOT_IN, GT, GTE, LT, LTE
 ###   Operands:    {"ref": "<path>"}  paths: subject.id | subject.attr.* |
 ###                resource.type | resource.id | resource.attr.* | context.*

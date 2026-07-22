@@ -17,15 +17,18 @@ One exception: **unauthenticated** requests (`401`) are rejected by the
 authentication layer as a `WWW-Authenticate` challenge with **no** problem+json
 body. Everything else below is problem+json.
 
-|                      `code`                       | HTTP |                        When                        |
-|---------------------------------------------------|------|----------------------------------------------------|
-| [`POLICY_ALREADY_EXISTS`](#policy-already-exists) | 409  | Creating a policy whose id is taken in this app    |
-| [`INVALID_POLICY`](#invalid-policy)               | 400  | The policy document failed validation              |
-| [`PRECONDITION_REQUIRED`](#precondition-required) | 428  | A conditional write arrived without `If-Match`     |
-| [`PRECONDITION_FAILED`](#precondition-failed)     | 412  | The `If-Match` ETag is stale                       |
-| [`POLICY_NOT_FOUND`](#policy-not-found)           | 404  | The referenced policy does not exist               |
-| [`VERSION_NOT_FOUND`](#version-not-found)         | 404  | The referenced version does not exist              |
-| [`FORBIDDEN`](#forbidden)                         | 403  | The caller lacks the required authorization marker |
+|                               `code`                                | HTTP |                         When                         |
+|---------------------------------------------------------------------|------|------------------------------------------------------|
+| [`POLICY_ALREADY_EXISTS`](#policy-already-exists)                   | 409  | Creating a policy whose id is taken in this app      |
+| [`INVALID_POLICY`](#invalid-policy)                                 | 400  | The policy document failed validation                |
+| [`PRECONDITION_REQUIRED`](#precondition-required)                   | 428  | A conditional write arrived without `If-Match`       |
+| [`PRECONDITION_FAILED`](#precondition-failed)                       | 412  | The `If-Match` ETag is stale                         |
+| [`POLICY_NOT_FOUND`](#policy-not-found)                             | 404  | The referenced policy does not exist                 |
+| [`VERSION_NOT_FOUND`](#version-not-found)                           | 404  | The referenced version does not exist                |
+| [`FORBIDDEN`](#forbidden)                                           | 403  | The caller lacks the required authorization marker   |
+| [`CATALOGUE_ENTRY_ALREADY_EXISTS`](#catalogue-entry-already-exists) | 409  | The app already declares that resource type          |
+| [`CATALOGUE_ENTRY_NOT_FOUND`](#catalogue-entry-not-found)           | 404  | The app declares no catalogue for that resource type |
+| [`ACTION_IN_USE`](#action-in-use)                                   | 409  | Removing an action an active policy still governs    |
 
 ---
 
@@ -129,6 +132,14 @@ you read it (someone else wrote to it). The write was not applied.
 re-apply the intended change on top of the current state, and retry. This is the
 lost-update guard: it prevents silently overwriting another author's change.
 
+**Extension members depend on the resource.** `currentRevision` is always present —
+it is what you need to retry. `policyId` is present only when the target is a policy;
+an action catalogue entry does not have one (it is identified by `(app, resourceType)`,
+both of which are in the request path), so the member is omitted rather than filled
+with something that is not a policy id.
+
+A policy write:
+
 ```json
 {
   "type": "https://github.com/ricardoqmd/service-policy/blob/main/docs/ERRORS.md#precondition-failed",
@@ -140,6 +151,25 @@ lost-update guard: it prevents silently overwriting another author's change.
   "currentRevision": 6
 }
 ```
+
+An action catalogue write (`PUT`/`DELETE` of
+`/v1/apps/{app}/action-catalogue/{resourceType}`) — no `policyId`:
+
+```json
+{
+  "type": "https://github.com/ricardoqmd/service-policy/blob/main/docs/ERRORS.md#precondition-failed",
+  "title": "Precondition failed",
+  "status": 412,
+  "code": "PRECONDITION_FAILED",
+  "detail": "If-Match does not match the current revision 3 of the action catalogue entry for resource type 'document' in app 'nami'.",
+  "currentRevision": 3
+}
+```
+
+The precondition is checked before the operation's own rules, so a stale `If-Match`
+on a catalogue write returns this 412 even when the requested change would also have
+been refused with [`ACTION_IN_USE`](#action-in-use): the stale client is reasoning
+about an out-of-date entry, and reloading comes first.
 
 ---
 
@@ -220,6 +250,97 @@ re-authenticate. The identity needs the appropriate role or scope.
   "status": 403,
   "code": "FORBIDDEN",
   "detail": "Admin marker required."
+}
+```
+
+---
+
+## Catalogue entry already exists
+
+`CATALOGUE_ENTRY_ALREADY_EXISTS` · **409 Conflict**
+
+**Meaning.** This application already declares an action catalogue for that resource
+type (ADR-028). An entry is identified by `(app, resourceType)`, so the conflict is
+scoped to the app in the path — the same resource type in another application is a
+different, independent entry and is created normally.
+
+**Triggered by.** `POST /v1/apps/{app}/action-catalogue` with a `resourceType` that
+is already declared *in that app*. Create is not an update: use `PUT` on the entry to
+change its action set.
+
+**Client should.** Treat as a naming conflict within the application. If the intent
+was to change the vocabulary, `GET` the entry, read its `ETag`, and `PUT` the new
+action set with `If-Match`.
+
+```json
+{
+  "type": "https://github.com/ricardoqmd/service-policy/blob/main/docs/ERRORS.md#catalogue-entry-already-exists",
+  "title": "Action catalogue entry already exists",
+  "status": 409,
+  "code": "CATALOGUE_ENTRY_ALREADY_EXISTS",
+  "detail": "An action catalogue entry for resource type 'document' already exists in app 'nami'."
+}
+```
+
+---
+
+## Catalogue entry not found
+
+`CATALOGUE_ENTRY_NOT_FOUND` · **404 Not Found**
+
+**Meaning.** The application declares no action catalogue for that resource type
+(ADR-028). Entries are keyed by `(app, resourceType)`, so an entry that exists in
+another application is not visible here.
+
+**Triggered by.** `GET`, `PUT` or `DELETE` of
+`/v1/apps/{app}/action-catalogue/{resourceType}` for a resource type that app has
+never declared.
+
+**Client should.** Verify both the app and the resource type — `GET
+/v1/apps/{app}/action-catalogue` lists everything the app declares. A resource type
+must be declared before any policy about it can be authored, so this 404 is also the
+answer to "why is authoring rejecting my actions?".
+
+```json
+{
+  "type": "https://github.com/ricardoqmd/service-policy/blob/main/docs/ERRORS.md#catalogue-entry-not-found",
+  "title": "Action catalogue entry not found",
+  "status": 404,
+  "code": "CATALOGUE_ENTRY_NOT_FOUND",
+  "detail": "No action catalogue entry for resource type 'invoice' in app 'nami'."
+}
+```
+
+---
+
+## Action in use
+
+`ACTION_IN_USE` · **409 Conflict**
+
+**Meaning.** You tried to remove an action that an **active** policy still governs
+(ADR-028). Adding actions to a catalogue is always safe — `*` was expanded when each
+policy was authored, so no existing policy changes meaning — but removing one is not,
+and a verb an active policy names is not silently deletable. Nothing was written: a
+rejected replace is not a partial one.
+
+**Triggered by.** `PUT /v1/apps/{app}/action-catalogue/{resourceType}` whose new
+action set drops an action an active policy of that resource type declares, or
+`DELETE` of an entry while any of its actions is in that position. Inactive policies
+never block: they decide nothing.
+
+**Client should.** Read `policyIds` — it names every active policy standing in the
+way. Either deactivate them, or author a new version that no longer governs the verb,
+then retry. This is a fail-safe refusal, not a transient error: retrying unchanged
+will keep failing.
+
+```json
+{
+  "type": "https://github.com/ricardoqmd/service-policy/blob/main/docs/ERRORS.md#action-in-use",
+  "title": "Action in use",
+  "status": 409,
+  "code": "ACTION_IN_USE",
+  "detail": "Action(s) [delete] of resource type 'document' in app 'nami' are referenced by active policies [doc-shredder].",
+  "policyIds": ["doc-shredder"]
 }
 ```
 

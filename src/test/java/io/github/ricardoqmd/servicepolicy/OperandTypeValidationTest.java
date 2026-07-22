@@ -10,6 +10,7 @@ import java.util.List;
 import jakarta.inject.Inject;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import io.github.ricardoqmd.servicepolicy.domain.policy.AttributeRef;
@@ -20,6 +21,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Literal;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
+import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
@@ -48,10 +50,20 @@ class OperandTypeValidationTest {
     @Inject
     PolicyVersionRepository versionRepository;
 
+    @Inject
+    ActionCatalogueRepository catalogueRepository;
+
+    /** ADR-028: every policy here governs 'doc' with ["*"], so the app must declare that vocabulary. */
+    @BeforeEach
+    void declareCatalogue() {
+        ActionCatalogueTestSupport.declare(catalogueRepository, APP, "doc", "read");
+    }
+
     @AfterEach
     void clearAll() {
         headRepository.deleteAll();
         versionRepository.deleteAll();
+        catalogueRepository.deleteAll();
     }
 
     // ── Part (a): static rejection at authoring ───────────────────────────────

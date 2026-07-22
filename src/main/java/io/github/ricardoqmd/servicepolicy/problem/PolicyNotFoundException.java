@@ -20,6 +20,7 @@ public class PolicyNotFoundException extends ProblemException {
                 policyId,
                 null,
                 null,
+                null,
                 null);
     }
 }

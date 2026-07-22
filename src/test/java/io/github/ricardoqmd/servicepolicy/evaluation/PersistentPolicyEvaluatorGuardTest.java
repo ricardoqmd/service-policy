@@ -103,7 +103,7 @@ class PersistentPolicyEvaluatorGuardTest {
                 "draft-policy",
                 1,
                 "document",
-                List.of("*"),
+                List.of("read"),
                 CombiningAlgorithm.DENY_OVERRIDES,
                 Effect.DENY,
                 List.of(assignedAccess));
