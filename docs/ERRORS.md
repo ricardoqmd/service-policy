@@ -29,6 +29,9 @@ body. Everything else below is problem+json.
 | [`CATALOGUE_ENTRY_ALREADY_EXISTS`](#catalogue-entry-already-exists) | 409  | The app already declares that resource type          |
 | [`CATALOGUE_ENTRY_NOT_FOUND`](#catalogue-entry-not-found)           | 404  | The app declares no catalogue for that resource type |
 | [`ACTION_IN_USE`](#action-in-use)                                   | 409  | Removing an action an active policy still governs    |
+| [`APP_CONFIG_ALREADY_EXISTS`](#app-config-already-exists)           | 409  | The app already has a configuration document         |
+| [`APP_CONFIG_NOT_FOUND`](#app-config-not-found)                     | 404  | The app has no configuration document                |
+| [`INVALID_APP_CONFIG`](#invalid-app-config)                         | 400  | The configuration document failed validation         |
 
 ---
 
@@ -132,13 +135,18 @@ you read it (someone else wrote to it). The write was not applied.
 re-apply the intended change on top of the current state, and retry. This is the
 lost-update guard: it prevents silently overwriting another author's change.
 
-**Extension members depend on the resource.** `currentRevision` is always present —
-it is what you need to retry. `policyId` is present only when the target is a policy;
-an action catalogue entry does not have one (it is identified by `(app, resourceType)`,
-both of which are in the request path), so the member is omitted rather than filled
-with something that is not a policy id.
+**Extension members follow one rule.** `currentRevision` is always present — it is what
+you need in order to retry, so every conditional write carries it. Beyond that, the body
+identifies the target only when the path does not: a write on a **policy** adds
+`policyId`, because a policy is identified by `(app, policyId)` and the id is worth
+echoing; a write on a resource identified **solely by its request path** — an action
+catalogue entry (`(app, resourceType)`) or an application's configuration (`app`) —
+carries no identifier member at all, because the path already names it. Nothing is
+filled in with a value that is not what the member means.
 
-A policy write:
+So there are two body shapes, not one per resource.
+
+A policy write — the only shape with `policyId`:
 
 ```json
 {
@@ -152,8 +160,10 @@ A policy write:
 }
 ```
 
-An action catalogue write (`PUT`/`DELETE` of
-`/v1/apps/{app}/action-catalogue/{resourceType}`) — no `policyId`:
+A path-addressed write — no identifier member. This shape covers **both** the action
+catalogue (`PUT`/`DELETE` of `/v1/apps/{app}/action-catalogue/{resourceType}`) and the
+application configuration (`PUT`/`DELETE` of `/v1/apps/{app}/configuration`); only the
+`detail` sentence differs, naming whichever resource the path addressed:
 
 ```json
 {
@@ -166,10 +176,17 @@ An action catalogue write (`PUT`/`DELETE` of
 }
 ```
 
-The precondition is checked before the operation's own rules, so a stale `If-Match`
-on a catalogue write returns this 412 even when the requested change would also have
-been refused with [`ACTION_IN_USE`](#action-in-use): the stale client is reasoning
-about an out-of-date entry, and reloading comes first.
+**Preconditions come first.** On every conditional write — policy, action catalogue,
+configuration — the `If-Match` check runs before the operation's own rules, so a stale
+ETag returns this 412 even when the requested change would *also* have been refused on
+its merits: with [`ACTION_IN_USE`](#action-in-use) on a catalogue write, or with
+[`INVALID_APP_CONFIG`](#invalid-app-config) on a configuration write. A client holding a
+stale ETag is reasoning about a resource it has not seen; reloading comes first, and the
+other objection may not even survive the reload.
+
+This ordering starts once there is a document to reason about. A request that fails at
+the transport boundary — no body, malformed JSON, an unknown field — is a `400` before
+any of this, because there is nothing yet to check a precondition against.
 
 ---
 
@@ -341,6 +358,101 @@ will keep failing.
   "code": "ACTION_IN_USE",
   "detail": "Action(s) [delete] of resource type 'document' in app 'nami' are referenced by active policies [doc-shredder].",
   "policyIds": ["doc-shredder"]
+}
+```
+
+---
+
+## App config already exists
+
+`APP_CONFIG_ALREADY_EXISTS` · **409 Conflict**
+
+**Meaning.** The application already has a configuration document (ADR-029).
+Configuration is a singleton per application — one document, addressed by the path
+alone — so creating a second one is not a thing that can mean anything.
+
+**Triggered by.** `POST /v1/apps/{app}/configuration` for an app that is already
+configured. Create is not an update.
+
+**Client should.** Switch to `PUT`: `GET` the configuration, read its `ETag`, and
+replace it with `If-Match`. That is the only path that carries the lost-update guard,
+which is why create does not silently overwrite.
+
+```json
+{
+  "type": "https://github.com/ricardoqmd/service-policy/blob/main/docs/ERRORS.md#app-config-already-exists",
+  "title": "Application configuration already exists",
+  "status": 409,
+  "code": "APP_CONFIG_ALREADY_EXISTS",
+  "detail": "App 'nami' already has a configuration; use PUT to replace it."
+}
+```
+
+---
+
+## App config not found
+
+`APP_CONFIG_NOT_FOUND` · **404 Not Found**
+
+**Meaning.** The application has no configuration document (ADR-029). Configuration is
+per-app data keyed by the app in the path, so another application's configuration is
+not visible here.
+
+**Triggered by.** `GET`, `PUT` or `DELETE` of `/v1/apps/{app}/configuration` for an app
+that has never been configured, or whose configuration has been deleted.
+
+**Client should.** `POST` to create one. Note that this is an *administrative* answer
+only: an application without configuration evaluates perfectly well — it simply has no
+claim mapping and no attribute source, so subject attributes come only from the caller.
+Absent configuration withdraws the engine's ability to derive attributes; it never
+denies and never widens.
+
+```json
+{
+  "type": "https://github.com/ricardoqmd/service-policy/blob/main/docs/ERRORS.md#app-config-not-found",
+  "title": "Application configuration not found",
+  "status": 404,
+  "code": "APP_CONFIG_NOT_FOUND",
+  "detail": "No configuration for app 'nami'."
+}
+```
+
+---
+
+## Invalid app config
+
+`INVALID_APP_CONFIG` · **400 Bad Request**
+
+**Meaning.** The submitted configuration document failed write-time validation
+(ADR-029): a missing or out-of-range field, a malformed attribute-source URL, or a
+document that configures nothing at all.
+
+**Triggered by.** `POST` or `PUT` of `/v1/apps/{app}/configuration` violating any of:
+at least one of `subjectAttributes`/`pip` present; non-blank attribute names and claim
+paths; when `pip` is present, all four of its fields, with `url` an absolute
+`http`/`https` URL containing the `{sub}` placeholder, `timeoutMs` in 1..10000,
+`cacheTtlSeconds` in 0..86400, and a non-blank `credentialRef`.
+
+Validation is syntax and bounds only — the configured source is deliberately **never
+contacted** at write time. A source that is down when configuration is written is not a
+configuration error, and an admin write that dials out is an admin write that can hang.
+
+**Client should.** Read `invalidParams` and surface each `field`/`reason`. Field paths
+are dotted (`pip.timeoutMs`, `subjectAttributes.rol`) and every violation in the
+document is reported at once, so the whole thing can be fixed in one pass.
+
+```json
+{
+  "type": "https://github.com/ricardoqmd/service-policy/blob/main/docs/ERRORS.md#invalid-app-config",
+  "title": "Invalid application configuration",
+  "status": 400,
+  "code": "INVALID_APP_CONFIG",
+  "detail": "The configuration document failed validation.",
+  "invalidParams": [
+    { "field": "subjectAttributes.rol", "reason": "claim path must not be blank" },
+    { "field": "pip.url", "reason": "must contain the '{sub}' placeholder for the subject id" },
+    { "field": "pip.timeoutMs", "reason": "must be between 1 and 10000" }
+  ]
 }
 ```
 
