@@ -101,10 +101,10 @@ class ActionCatalogueResourceTest {
                 .get(CATALOGUE, APP)
                 .then()
                 .statusCode(200)
-                .body("entries", hasSize(2))
-                .body("entries.resourceType", contains("document", "request"))
-                .body("entries[0].app", equalTo(APP))
-                .body("entries[0].actions", contains("read"));
+                .body("data", hasSize(2))
+                .body("data.resourceType", contains("document", "request"))
+                .body("data[0].app", equalTo(APP))
+                .body("data[0].actions", contains("read"));
     }
 
     @Test
@@ -112,7 +112,7 @@ class ActionCatalogueResourceTest {
             user = "admin-user",
             roles = {ADMIN})
     void listIsEmptyWhenTheAppDeclaresNothing() {
-        given().when().get(CATALOGUE, APP).then().statusCode(200).body("entries", hasSize(0));
+        given().when().get(CATALOGUE, APP).then().statusCode(200).body("data", hasSize(0));
     }
 
     @Test
@@ -698,8 +698,8 @@ class ActionCatalogueResourceTest {
                 .get(CATALOGUE, "other-app")
                 .then()
                 .statusCode(200)
-                .body("entries", hasSize(1))
-                .body("entries[0].app", equalTo("other-app"));
+                .body("data", hasSize(1))
+                .body("data[0].app", equalTo("other-app"));
     }
 
     /** An entry of another app is invisible here, exactly as a policy of another app is. */

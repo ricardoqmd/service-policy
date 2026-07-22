@@ -95,7 +95,9 @@ public class ActionCatalogueResource {
     }
 
     /**
-     * Lists every entry of the app.
+     * Lists every entry of the app, under the {@code data} envelope key every collection in this API
+     * uses (see {@link Paginated}) — minus the {@code pagination} block, which has nothing to say
+     * about a collection that is always returned whole.
      *
      * <p>Deliberately NOT paginated, unlike every other listing in this API. A catalogue is a bounded
      * vocabulary — an application has tens of resource types, not thousands — so paging would add a
@@ -108,7 +110,8 @@ public class ActionCatalogueResource {
     @Operation(
             summary = "List the action catalogue of an application",
             description = "Returns every catalogue entry of this app (ADR-028), ordered by resource type, as"
-                    + " {\"entries\": [...]}. Not paginated by design: a catalogue is a bounded vocabulary and"
+                    + " {\"data\": [...]} — the same envelope key the paginated listings use, without a"
+                    + " 'pagination' block. Not paginated by design: a catalogue is a bounded vocabulary and"
                     + " its consumers — wildcard expansion and permission enumeration — need it whole. Returns"
                     + " an empty list if the app declares no resource type.")
     public Response list(@PathParam("app") String app) {
