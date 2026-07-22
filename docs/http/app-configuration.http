@@ -1,0 +1,354 @@
+### ============================================================================
+### service-policy — PER-APPLICATION CONFIGURATION walkthrough (ADR-029)
+###   POST   /v1/apps/{app}/configuration    create   (201, ETag "1")
+###   GET    /v1/apps/{app}/configuration    read     (200 + ETag)
+###   PUT    /v1/apps/{app}/configuration    replace  (If-Match)
+###   DELETE /v1/apps/{app}/configuration    remove   (If-Match, 204)
+###
+### Open in VS Code (REST Client) or IntelliJ HTTP Client; run top-down.
+### Start the app first:  ./mvnw quarkus:dev    (Docker running for MongoDB + OIDC)
+###
+### WHAT THIS IS (ADR-029):
+###   Per-application configuration is DATA, administered through this API — not
+###   deployment configuration. Onboarding an application must not be a redeploy, and
+###   one application's change must not restart the engine for all the others.
+###   ADR-013's GLOBAL markers (which role means "admin") stay in application.properties;
+###   what is per-application by nature lives here. The rule is that simple.
+###
+###   Two sections, each independently optional (but at least one must be present):
+###     subjectAttributes — attribute name → claim path inside the token
+###     pip               — where to fetch the attributes the token does NOT carry
+###
+### ⚠️ NOTHING CONSUMES THIS YET. The claim mapping and the PIP adapter are later ADRs.
+###    Writing a configuration today changes no decision; /evaluate is untouched.
+###    ADR-029 makes the document administrable and stops there.
+###
+### A SINGLETON, not a collection: one document per app, addressed by the path alone.
+### There is no list endpoint — there is nothing to list within an application.
+###
+### Admin-gated (ADR-013) and nested under the app (ADR-026): `app` must NOT appear in
+### any request body (sending it → 400 BAD_REQUEST, even if it matches the path).
+### Writes are conditional: If-Match: "<revision>" (the ETag from a GET).
+###   Missing/unparseable If-Match → 428 ; stale → 412.
+### Errors are RFC 9457 application/problem+json (see docs/ERRORS.md).
+### ============================================================================
+
+@host = http://localhost:8080
+@auth_admin = Bearer {{admin_jwt}}
+@auth = Bearer {{jwt}}
+
+
+### ============================================================================
+### ABOUT credentialRef — READ THIS BEFORE CONFIGURING A PIP
+### ----------------------------------------------------------------------------
+### `credentialRef` is a NAME, never a secret. It is the key under which the actual
+### credential lives in the DEPLOYMENT's secret mechanism (properties, environment,
+### secret store) — and it is a future adapter, not this code, that resolves it.
+###
+### This is deliberate (ADR-029 §secrets are referenced, never stored): a configuration
+### collection that administrators can read must never become a place where credentials
+### live. Putting a token or a password in this field does not "work insecurely" — it
+### stores your secret in a readable admin document. Don't.
+###
+### The engine stores this string, echoes it back on GET, and does nothing else with it.
+### ============================================================================
+
+
+### ----------------------------------------------------------------------------
+### 1) CREATE the configuration of app "rh"  →  201 Created
+### ----------------------------------------------------------------------------
+### Note: NO "app" field in the body — the path carries it.
+POST {{host}}/v1/apps/rh/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "subjectAttributes": {
+    "rol": "resource_access.rh.roles",
+    "area": "org.area"
+  },
+  "pip": {
+    "url": "https://rh-backend/api/subjects/{sub}/attributes",
+    "timeoutMs": 500,
+    "cacheTtlSeconds": 300,
+    "credentialRef": "rh-pip"
+  }
+}
+
+### EXPECTED  201 Created, ETag: "1"
+### { "app": "rh", "subjectAttributes": {…}, "pip": {…}, "revision": 1 }
+### A BARE object — no envelope. Configuration is a single resource, so there is nothing
+### to page or wrap. `app` IS returned (the server supplies it); it is only absent from
+### request bodies.
+###
+### NOTE the {sub} in the url: it is REQUIRED. It is what makes the endpoint per-subject
+### rather than one URL for everyone; the future adapter substitutes the subject id.
+### NOTE also: the engine did NOT call that URL. See section 6.
+
+
+### ----------------------------------------------------------------------------
+### 2) GET it  →  200, read the ETag (needed to write)
+### ----------------------------------------------------------------------------
+GET {{host}}/v1/apps/rh/configuration
+Authorization: {{auth_admin}}
+
+### EXPECTED  200 OK.  Headers: ETag: "1"
+
+
+### 3) Only ONE section is fine — sections are independently optional
+POST {{host}}/v1/apps/nami/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "subjectAttributes": { "rol": "realm_access.roles" }
+}
+
+### EXPECTED  201 Created — and the response OMITS "pip" entirely rather than returning
+### an empty object. "Not configured" and "configured empty" are different answers, and
+### only the first is representable (validation rejects the second).
+
+
+### ----------------------------------------------------------------------------
+### 4) PUT — replace the FULL document (this is a replace, NOT a merge)
+### ----------------------------------------------------------------------------
+PUT {{host}}/v1/apps/rh/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+If-Match: "1"
+
+{
+  "subjectAttributes": {
+    "rol": "resource_access.rh.roles"
+  }
+}
+
+### EXPECTED  200 OK, ETag: "2"
+### ⚠️ The "pip" section from step 1 is GONE — it was omitted, so it was removed. A merge
+### would leave "remove the attribute source" inexpressible without inventing a second
+### verb. Send the whole document you want to end up with.
+
+
+### 5) 428 PRECONDITION_REQUIRED — write without If-Match
+PUT {{host}}/v1/apps/rh/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "subjectAttributes": { "rol": "realm_access.roles" } }
+
+### EXPECTED  428  code: "PRECONDITION_REQUIRED"
+### (An unparseable If-Match, e.g. If-Match: "abc", is refused the same way: never a
+### blind write.)
+
+
+### 6) 412 PRECONDITION_FAILED — stale If-Match
+PUT {{host}}/v1/apps/rh/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+If-Match: "1"
+
+{ "subjectAttributes": { "rol": "realm_access.roles" } }
+
+### EXPECTED  412  code: "PRECONDITION_FAILED"  (extension: currentRevision: 2)
+### The revision moved to 2 in step 4. Reload, re-apply, retry — the lost-update guard.
+### Note: no `policyId` member; a configuration document has no policy id.
+###
+### The precondition is checked BEFORE the body is validated. Send a stale If-Match AND
+### a malformed body and you get 412, not a validation report: a client reasoning about
+### a document it has not seen needs "reload and look again" first.
+
+
+### ============================================================================
+### VALIDATION — syntax and bounds, checked on write (ADR-029)
+### ============================================================================
+
+### 7) 400 — a document that configures nothing
+POST {{host}}/v1/apps/kronia/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{}
+
+### EXPECTED  400  code: "INVALID_APP_CONFIG"
+### invalidParams: [{ "field": "configuration",
+###                   "reason": "declare at least one of 'subjectAttributes' or 'pip'; …" }]
+### An empty configuration is indistinguishable from having none, so it is refused
+### rather than stored as a document that means nothing.
+
+
+### 8) 400 — pip.url without the {sub} placeholder
+POST {{host}}/v1/apps/kronia/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "pip": {
+    "url": "https://kronia-backend/api/subjects/attributes",
+    "timeoutMs": 500,
+    "cacheTtlSeconds": 300,
+    "credentialRef": "kronia-pip"
+  }
+}
+
+### EXPECTED  400  → field "pip.url", reason "must contain the '{sub}' placeholder…"
+
+
+### 9) 400 — wrong scheme (the placeholder is there, the scheme is not http/https)
+POST {{host}}/v1/apps/kronia/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "pip": { "url": "ftp://kronia-backend/subjects/{sub}", "timeoutMs": 500,
+           "cacheTtlSeconds": 300, "credentialRef": "kronia-pip" }
+}
+
+### EXPECTED  400  → field "pip.url", reason "must be an absolute http or https URL"
+
+
+### 10) 400 — out-of-bounds timeout, and EVERY other violation in the same response
+POST {{host}}/v1/apps/kronia/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "subjectAttributes": { "rol": "" },
+  "pip": { "url": "ftp://backend/subjects", "timeoutMs": 99999,
+           "cacheTtlSeconds": 999999, "credentialRef": "" }
+}
+
+### EXPECTED  400  code: "INVALID_APP_CONFIG" with SIX invalidParams:
+###   subjectAttributes.rol  → claim path must not be blank
+###   pip.url                → must contain the '{sub}' placeholder…
+###   pip.url                → must be an absolute http or https URL
+###   pip.timeoutMs          → must be between 1 and 10000
+###   pip.cacheTtlSeconds    → must be between 0 and 86400
+###   pip.credentialRef      → must not be blank…
+### One request, one response, the whole list. Dotted field paths so an operator can
+### fix the document in one pass instead of one round-trip per mistake.
+
+
+### 11) 400 — an empty "pip" section: all four fields are required once it is declared
+POST {{host}}/v1/apps/kronia/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "pip": {} }
+
+### EXPECTED  400 — four invalidParams, one per missing field. A partially configured
+### source cannot be called at all, so "partially configured" is not a state.
+
+
+### 12) THE SOURCE IS NEVER CONTACTED AT WRITE TIME
+POST {{host}}/v1/apps/kronia/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{
+  "pip": { "url": "http://127.0.0.1:1/subjects/{sub}", "timeoutMs": 500,
+           "cacheTtlSeconds": 300, "credentialRef": "kronia-pip" }
+}
+
+### EXPECTED  201 Created — INSTANTLY, even though nothing is listening on port 1.
+### This is deliberate (ADR-029): a source that is down when configuration is written is
+### not a configuration error, and an admin write that performs outbound calls is an
+### admin write that can hang. Validation is syntax and bounds, nothing more.
+
+
+### 13) 400 BAD_REQUEST — `app` in the body (ADR-026)
+POST {{host}}/v1/apps/kronia/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "app": "kronia", "subjectAttributes": { "rol": "realm_access.roles" } }
+
+### EXPECTED  400  →  "'app' must not be present in the body; it is determined by the path."
+### Rejected for EXISTING, not for disagreeing.
+
+
+### ============================================================================
+### THE REST OF THE ERROR SURFACE
+### ============================================================================
+
+### 14) 409 APP_CONFIG_ALREADY_EXISTS — configuration is a singleton
+POST {{host}}/v1/apps/rh/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "subjectAttributes": { "rol": "realm_access.roles" } }
+
+### EXPECTED  409  →  "App 'rh' already has a configuration; use PUT to replace it."
+### Create is not an update: only PUT carries the If-Match guard.
+
+
+### 15) 404 APP_CONFIG_NOT_FOUND — an app that was never configured
+GET {{host}}/v1/apps/never-configured/configuration
+Authorization: {{auth_admin}}
+
+### EXPECTED  404  code: "APP_CONFIG_NOT_FOUND"
+### An ADMINISTRATIVE answer only. That app evaluates perfectly well — it just has no
+### claim mapping and no attribute source, so subject attributes come only from the
+### caller, exactly as the engine behaved before ADR-029.
+
+
+### 16) 403 FORBIDDEN — non-admin token
+GET {{host}}/v1/apps/rh/configuration
+Authorization: {{auth}}
+
+### EXPECTED  403  code: "FORBIDDEN"  (every configuration operation is admin-gated)
+
+
+### ----------------------------------------------------------------------------
+### 17) DELETE the configuration  →  204 No Content
+### ----------------------------------------------------------------------------
+### Use the current ETag ("2" after step 4) as If-Match.
+DELETE {{host}}/v1/apps/rh/configuration
+Authorization: {{auth_admin}}
+If-Match: "2"
+
+### EXPECTED  204 No Content (empty body)
+### UNGUARDED by design, unlike deleting an action catalogue entry. Nothing references a
+### configuration document, and removing one cannot widen a decision: it withdraws the
+### engine's ability to DERIVE attributes, which makes fewer things determinable and
+### never more permitted. Under deny-overrides with defaultEffect DENY, fewer resolved
+### attributes can only produce equal or stricter outcomes (ADR-011).
+
+
+### 18) …and it is gone
+GET {{host}}/v1/apps/rh/configuration
+Authorization: {{auth_admin}}
+
+### EXPECTED  404  code: "APP_CONFIG_NOT_FOUND"
+
+
+### ============================================================================
+### CACHING AND STALENESS (ADR-029)
+### ----------------------------------------------------------------------------
+### Configuration is cached in memory for its future readers, with a 60-second TTL, and
+### ABSENCE is cached too — most applications have no configuration, and that is exactly
+### the read that must not hit Mongo on every decision.
+###
+### Writes through this API invalidate the cache, so on the single-instance deployment
+### this engine runs as today, a change is visible to the very next read. Should it ever
+### run multi-instance, other instances converge within the TTL: 60 seconds is the
+### documented staleness window, and the upper bound on how long a decision could be
+### made against superseded configuration.
+###
+### Acceptable because configuration is additive capability, not permission: a stale copy
+### resolves fewer or different attributes, which under deny-overrides can only be equal
+### or stricter (ADR-011). No change stream, no polling.
+### ============================================================================
+
+
+### ============================================================================
+### HOW TO OBTAIN TOKENS (dev)
+### ----------------------------------------------------------------------------
+### In quarkus:dev the OIDC dev services start a Keycloak. Get tokens via the Dev UI
+### (http://localhost:8080/q/dev) → OIDC. {{admin_jwt}} must carry the admin marker
+### (role "authz-admin" by default; configurable per ADR-013).
+###
+### RELATED FILES:
+###   action-catalogue.http        per-app action vocabulary (ADR-028)
+###   lifecycle-walkthrough.http   full policy lifecycle
+###   evaluation-endpoints.http    /evaluate, /evaluate/batch, /permissions
+### ============================================================================
