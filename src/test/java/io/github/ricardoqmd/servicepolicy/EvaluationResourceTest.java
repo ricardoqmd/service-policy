@@ -313,7 +313,10 @@ class EvaluationResourceTest {
 
     @Test
     @TestSecurity(user = "test-user")
-    void permissionsReturnsEmptyListForNow() {
+    void permissionsForAnAppWithNoCatalogueIsAnEmptyList() {
+        // ADR-030: an app with no action catalogue has nothing to enumerate, so the answer is a
+        // valid computed resource with an empty list — not an error. This suite seeds no catalogue
+        // for 'rh'. The full three-outcome behaviour lives in PermissionsResourceTest.
         given().when()
                 .get("/v1/apps/rh/permissions")
                 .then()
@@ -321,8 +324,7 @@ class EvaluationResourceTest {
                 .body("subject", equalTo("test-user"))
                 .body("app", equalTo("rh"))
                 .body("permissions", hasSize(0))
-                .body("policyVersion", notNullValue())
-                .body("evaluatedAt", notNullValue());
+                .body("generatedAt", notNullValue());
     }
 
     @Test

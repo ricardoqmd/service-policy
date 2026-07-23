@@ -1,17 +1,18 @@
 package io.github.ricardoqmd.servicepolicy.evaluation;
 
-import java.util.List;
-
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 
 /**
  * Port: authorization evaluation engine.
  *
- * <p>Implementors answer whether a subject may perform an action on a resource, and can enumerate
- * all actions permitted for a subject within an application context.
+ * <p>Implementors answer whether a subject may perform an action on a resource.
  *
  * <p>The active implementation is {@link PersistentPolicyEvaluator}, which evaluates
  * MongoDB-backed policies with the pure-domain engine (deny-overrides).
+ *
+ * <p>Permission <em>enumeration</em> is a separate concern and deliberately not on this port: it is
+ * three-valued and isolated from enforcement by construction (ADR-030), living in the
+ * {@code enumeration} package. This port stays two-valued.
  */
 public interface PolicyEvaluator {
 
@@ -41,20 +42,4 @@ public interface PolicyEvaluator {
      * @return the authorization decision, identical in shape to {@link #evaluate}.
      */
     Decision simulate(String app, String subject, EvaluationRequest request, Policy candidate);
-
-    /**
-     * Returns all actions the subject is permitted to perform in the given application context.
-     *
-     * @param subject the resolved subject identifier.
-     * @param app     the application context name.
-     * @return list of permitted action strings; empty list if none.
-     */
-    List<String> permittedActions(String subject, String app);
-
-    /**
-     * Returns the version of the active policy set.
-     *
-     * @return policy version string.
-     */
-    String policyVersion();
 }

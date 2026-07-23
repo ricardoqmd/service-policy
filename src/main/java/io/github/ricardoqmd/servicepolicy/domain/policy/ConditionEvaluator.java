@@ -1,9 +1,5 @@
 package io.github.ricardoqmd.servicepolicy.domain.policy;
 
-import java.util.Collection;
-import java.util.Objects;
-import java.util.function.IntPredicate;
-
 import io.github.ricardoqmd.servicepolicy.domain.exception.UnknownAttributeException;
 import io.github.ricardoqmd.servicepolicy.domain.model.AuthorizationRequest;
 
@@ -19,6 +15,9 @@ import io.github.ricardoqmd.servicepolicy.domain.model.AuthorizationRequest;
  * makes an ordering comparison not hold (ADR-011, ADR-023): neither absence nor a runtime type
  * mismatch ever grants access or raises a server error. Static type mismatches (a non-numeric
  * literal on an ordering operator) are rejected at authoring time by the document mapper.
+ *
+ * <p>The operator truth itself lives in {@link ComparisonSemantics}, shared with the enumeration
+ * path (ADR-030); this class owns only attribute resolution and the fail-safe reading of absence.
  */
 public final class ConditionEvaluator {
 
@@ -40,35 +39,11 @@ public final class ConditionEvaluator {
     private boolean compare(Comparison cmp, AuthorizationRequest request) {
         Object left = resolve(cmp.left(), request);
         Object right = resolve(cmp.right(), request);
-        // A null operand makes the comparison not hold (ADR-011). A non-numeric operand on an
-        // ordering operator also makes it not hold rather than raising an error (ADR-023): dynamic
-        // type mismatches deny under deny-overrides, consistent with the absent-operand rule.
-        return switch (cmp.op()) {
-            case EQ -> bothPresent(left, right) && Objects.equals(left, right);
-            case NEQ -> bothPresent(left, right) && !Objects.equals(left, right);
-            case IN -> left != null && right instanceof Collection<?> col && col.contains(left);
-            case NOT_IN -> notIn(left, right);
-            case GT -> compareOrdering(left, right, v -> v > 0);
-            case GTE -> compareOrdering(left, right, v -> v >= 0);
-            case LT -> compareOrdering(left, right, v -> v < 0);
-            case LTE -> compareOrdering(left, right, v -> v <= 0);
-        };
-    }
-
-    private static boolean bothPresent(Object a, Object b) {
-        return a != null && b != null;
-    }
-
-    /**
-     * {@code NOT_IN} holds when both operands are present and {@code left} is not contained in the
-     * collection {@code right}. A null operand makes it not hold (ADR-011); a present but
-     * non-collection right keeps the prior vacuously-true behaviour (a type concern, not absence).
-     */
-    private static boolean notIn(Object left, Object right) {
-        if (left == null || right == null) {
-            return false;
-        }
-        return !(right instanceof Collection<?> col) || !col.contains(left);
+        // The operator truth lives in ComparisonSemantics, shared with the enumeration path (ADR-030)
+        // so the eight operators cannot mean two different things in two places. The fail-safe reading
+        // of the unknown is expressed here, by resolving an absent attribute to null and letting the
+        // shared rules make the comparison not hold (ADR-011, ADR-023).
+        return ComparisonSemantics.holds(cmp.op(), left, right);
     }
 
     private Object resolve(Operand operand, AuthorizationRequest request) {
@@ -94,12 +69,5 @@ public final class ConditionEvaluator {
             case "resource.id" -> request.resource().id();
             default -> throw new UnknownAttributeException(path);
         };
-    }
-
-    private static boolean compareOrdering(Object a, Object b, IntPredicate predicate) {
-        if (!(a instanceof Number na) || !(b instanceof Number nb)) {
-            return false;
-        }
-        return predicate.test(Double.compare(na.doubleValue(), nb.doubleValue()));
     }
 }

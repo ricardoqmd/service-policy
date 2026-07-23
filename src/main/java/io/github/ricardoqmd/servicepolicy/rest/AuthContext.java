@@ -1,5 +1,6 @@
 package io.github.ricardoqmd.servicepolicy.rest;
 
+import java.util.Optional;
 import java.util.Set;
 
 import jakarta.enterprise.context.RequestScoped;
@@ -49,6 +50,16 @@ public class AuthContext {
         if (name != null && !name.isBlank()) return name;
 
         throw new ProblemException(401, "UNAUTHORIZED", "no usable subject identity in token");
+    }
+
+    /**
+     * @return the caller's validated JWT when the principal is one, empty otherwise (e.g. a test
+     *     identity with no token). Exposed so the permissions surface can derive subject attributes
+     *     from mapped claims (ADR-029/ADR-030) without the {@code enumeration} package reaching into
+     *     the web layer — the resource reads the token here and passes it down.
+     */
+    public Optional<JsonWebToken> callerToken() {
+        return identity.getPrincipal() instanceof JsonWebToken jwt ? Optional.of(jwt) : Optional.empty();
     }
 
     /**

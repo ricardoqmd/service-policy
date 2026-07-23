@@ -1,0 +1,207 @@
+### ============================================================================
+### service-policy — PERMISSION ENUMERATION walkthrough (ADR-030)
+###   GET /v1/apps/{app}/permissions    the pairs the caller can act on
+###
+### Open in VS Code (REST Client) or IntelliJ HTTP Client; run top-down.
+### Start the app first:  ./mvnw quarkus:dev    (Docker running for MongoDB + OIDC)
+###
+### WHAT THIS IS
+###   For every (resourceType, action) in the app's catalogue (ADR-028), the engine
+###   evaluates the active policies WITH NO RESOURCE INSTANCE, three-valued, and returns
+###   the pairs the subject can act on. It is what a UI calls once per session to render
+###   menus, sections and "New" buttons without a call per button.
+###
+### ⚠️ ADVISORY, NEVER ENFORCEMENT (ADR-030 §2)
+###   The response is a HINT FOR RENDERING, not an authorization decision. A UI that
+###   hides a button it should have shown is a usability bug; a backend that SKIPS
+###   /evaluate because /permissions said yes is a SECURITY BUG. Always enforce each
+###   real action with /evaluate, using resource attributes the backend trusts.
+###
+### THE THREE OUTCOMES
+###   deterministic permit  → listed, "conditional": false   (no instance changes it)
+###   depends on instance   → listed, "conditional": true    (+ dependsOn)
+###   deterministic deny    → OMITTED                         (no instance changes it)
+###   Omitting the conditional case would hide controls the user can in fact use for some
+###   resources — a silent false negative. Marking it is the point of the design.
+###
+### TWO PATHS FOR THE CLIENT
+###   type-level questions (is the button ever usable?) → THIS endpoint, one call.
+###   instance-level questions (may I edit THIS row?)   → /evaluate per instance, with
+###   resource attributes picked by dependsOn:  attributes: pick(row, entry.dependsOn)
+###
+### Subject is the caller's own JWT sub (self only, ADR-013). No body, no query params.
+### Depends on the app's catalogue (ADR-028) and, for claim-derived subject attributes,
+### its configuration (ADR-029). Without them the answer degrades honestly (see step 5).
+### ============================================================================
+
+@host = http://localhost:8080
+@auth = Bearer {{jwt}}
+@auth_admin = Bearer {{admin_jwt}}
+
+
+### ----------------------------------------------------------------------------
+### SETUP (admin) — a catalogue, a config, and policies on the four outcomes
+### ----------------------------------------------------------------------------
+### 0a) Declare the vocabulary of "document" (ADR-028). Without a catalogue there is
+###     nothing to enumerate and the answer is an empty list.
+POST {{host}}/v1/apps/rh/action-catalogue
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "resourceType": "document", "actions": ["create", "read", "update", "delete"] }
+
+
+### 0b) Map a subject attribute from a token claim (ADR-029), so a type-level policy can
+###     read it. Here subject.attr.area comes from the token's "dept" claim.
+POST {{host}}/v1/apps/rh/configuration
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "subjectAttributes": { "area": "dept" } }
+
+
+### 0c) create — type-level PERMIT (reads only subject + resource type): DETERMINISTIC.
+POST {{host}}/v1/apps/rh/policies
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "policyId": "doc-create", "version": 1, "resourceType": "document", "actions": ["create"],
+  "combiningAlgorithm": "DENY_OVERRIDES", "defaultEffect": "DENY",
+  "rules": [ { "id": "by-area", "effect": "PERMIT",
+    "condition": { "type": "comparison", "op": "EQ",
+      "left": {"ref": "subject.attr.area"}, "right": {"value": "north"} } } ] }
+
+### …then activate it (GET it for the ETag, then POST /activate If-Match: "0"). Repeat
+### 0c-style creation + activation for the two policies below.
+
+
+### 0d) update — reads a RESOURCE attribute: INDETERMINATE without the instance.
+###     doc-update PERMITs when resource.attr.areaId == subject.attr.area. The areaId is
+###     unknown here, so the pair is conditional and dependsOn = ["areaId"].
+POST {{host}}/v1/apps/rh/policies
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "policyId": "doc-update", "version": 1, "resourceType": "document", "actions": ["update"],
+  "combiningAlgorithm": "DENY_OVERRIDES", "defaultEffect": "DENY",
+  "rules": [ { "id": "area-scope", "effect": "PERMIT",
+    "condition": { "type": "comparison", "op": "EQ",
+      "left": {"ref": "resource.attr.areaId"}, "right": {"ref": "subject.attr.area"} } } ] }
+
+
+### 0e) delete — a policy that DENIES deterministically → the pair is OMITTED.
+POST {{host}}/v1/apps/rh/policies
+Authorization: {{auth_admin}}
+Content-Type: application/json
+
+{ "policyId": "doc-delete-block", "version": 1, "resourceType": "document", "actions": ["delete"],
+  "combiningAlgorithm": "DENY_OVERRIDES", "defaultEffect": "DENY",
+  "rules": [ { "id": "never", "effect": "DENY",
+    "condition": { "type": "comparison", "op": "EQ", "left": {"value": 1}, "right": {"value": 1} } } ] }
+
+### (read has NO policy → also omitted, by the fail-safe default.)
+### Activate doc-create, doc-update and doc-delete-block before the GET below.
+
+
+### ============================================================================
+### 1) ENUMERATE — the three outcomes in one response
+### ============================================================================
+### Use a token whose "dept" claim is "north" so subject.attr.area resolves.
+GET {{host}}/v1/apps/rh/permissions
+Authorization: {{auth}}
+
+### EXPECTED  200 OK
+### Headers:  ETag: "<hex>"   Cache-Control: private, max-age=30
+### {
+###   "app": "rh",
+###   "subject": "<sub-from-jwt>",
+###   "permissions": [
+###     { "resourceType": "document", "action": "create", "conditional": false },
+###     { "resourceType": "document", "action": "update", "conditional": true,
+###       "dependsOn": ["areaId"] }
+###   ],
+###   "generatedAt": "2026-07-23T…Z"
+### }
+### Entries sorted by (resourceType, action). NOTE what is ABSENT:
+###   - "delete" — a deterministic deny (doc-delete-block), omitted.
+###   - "read"   — no applicable policy, omitted (fail-safe default).
+### "create" is unconditional (type-level). "update" is conditional and TELLS THE CLIENT
+### which resource attribute to send: dependsOn = ["areaId"]. `dependsOn` is present only
+### on conditional pairs — an unconditional entry has no such key.
+
+
+### ----------------------------------------------------------------------------
+### 2) HONOUR THE dependsOn — the instance-level second call
+### ----------------------------------------------------------------------------
+### For the conditional "update" pair, ask per instance with exactly the attributes
+### dependsOn named — pick(row, ["areaId"]) from the row the UI is rendering.
+POST {{host}}/v1/apps/rh/evaluate
+Authorization: {{auth}}
+Content-Type: application/json
+
+{ "action": "document:update",
+  "resource": { "type": "document", "id": "d1", "attributes": { "areaId": "north" } } }
+
+### EXPECTED  200 OK → allowed: true   (areaId matches the subject's area)
+### This is enforcement. A policy change from areaId to ownerId updates dependsOn on the
+### next /permissions call, and this generic client adapts with no code change.
+
+
+### ============================================================================
+### 3) CACHING — revalidate with If-None-Match → 304
+### ============================================================================
+### The response carries a strong ETag over the COMPUTED RESULT (not a policy version:
+### a subject-attribute change must invalidate it too). Send it back to revalidate.
+GET {{host}}/v1/apps/rh/permissions
+Authorization: {{auth}}
+If-None-Match: "<paste the ETag from step 1>"
+
+### EXPECTED  304 Not Modified, same ETag, no body — when nothing changed.
+### A short server-side TTL (30s) bounds staleness; within it a policy or attribute
+### change may not be reflected yet. That is acceptable: the answer is advisory and
+### enforcement re-checks. Push invalidation is a deliberate v2 (ADR-030 §5).
+
+
+### ============================================================================
+### 4) SELF ONLY
+### ============================================================================
+### There is no way to ask for another subject's permissions here — no query param, no
+### body. That is a different question (an admin screen listing what someone else can do)
+### with a different authorization model, and it belongs to its own endpoint (ADR-030 §1).
+
+### 4a) 401 — no token
+GET {{host}}/v1/apps/rh/permissions
+
+### EXPECTED  401 (OIDC challenge, no problem+json body)
+
+
+### ============================================================================
+### 5) DEGRADATION — honest, never widening
+### ============================================================================
+### 5a) An app with NO catalogue → nothing to enumerate → empty list, still 200 + ETag.
+GET {{host}}/v1/apps/no-catalogue-app/permissions
+Authorization: {{auth}}
+
+### EXPECTED  200 OK → { …, "permissions": [], … }
+
+### 5b) No configuration / no claim mapping → the engine cannot derive subject attributes,
+###     so a policy reading subject.attr.* is INDETERMINATE and its pair comes back
+###     conditional rather than deterministic. Fewer resolvable attributes make MORE pairs
+###     conditional — never more permitted (ADR-030 §Consequences, ADR-011). A conditional
+###     pair whose indeterminacy is a SUBJECT attribute carries no dependsOn: the client
+###     never supplies subject attributes, so it is never asked for them.
+
+
+### ============================================================================
+### HOW TO OBTAIN TOKENS (dev)
+### ----------------------------------------------------------------------------
+### In quarkus:dev the OIDC dev services start a Keycloak. Get tokens via the Dev UI
+### (http://localhost:8080/q/dev) → OIDC. For step 1, the {{jwt}} token needs a "dept"
+### claim of "north" for subject.attr.area to resolve (add a protocol mapper, or map a
+### claim your realm already issues in the app's configuration at step 0b).
+###
+### RELATED FILES:
+###   action-catalogue.http        the (resourceType, action) vocabulary (ADR-028)
+###   app-configuration.http       claim mapping and attribute source (ADR-029)
+###   evaluation-endpoints.http    /evaluate, /evaluate/batch — the enforcement path
+### ============================================================================
