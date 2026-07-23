@@ -272,36 +272,47 @@ Content-Type: application/json
 
 
 ### ============================================================================
-### C) GET /v1/apps/{app}/permissions  — cacheable flat permission list
+### C) GET /v1/apps/{app}/permissions  — permission ENUMERATION (ADR-030)
 ### ============================================================================
-### The app is in the PATH (the old ?app= query param is gone, ADR-026).
-### Subject is resolved from the JWT (self only; the delegated form is deferred to its
-### own ADR).
+### No longer a stub. Full walkthrough with the three outcomes, dependsOn and the
+### ETag/304 contract lives in permissions.http — this is the pointer and the shape.
 ###
-### RESPONSE (PermissionsResponse):
-###   { subject, app, permissions: [ "resource:verb", … ], policyVersion, evaluatedAt }
-### Safe to cache per (subject + app + policyVersion); policyVersion changes when
-### policies change → use it as a cache key / invalidation signal.
+### The app is in the PATH (ADR-026). Subject is the caller's own JWT sub (self only).
+### ⚠️ ADVISORY, not enforcement: a hint for rendering. A backend that skips /evaluate
+###    because this said yes is a SECURITY BUG. Always enforce per request.
 ###
-### NOTE: today `permissions` returns an empty list (option A); the bulk
-### permission-listing mechanism is a separate future ADR. The CONTRACT is stable even
-### though the list is currently empty.
+### RESPONSE (PermissionsView) — structured pairs, not "resource:verb" strings:
+###   {
+###     "app": "rh", "subject": "<sub>",
+###     "permissions": [
+###       { "resourceType": "document", "action": "create", "conditional": false },
+###       { "resourceType": "document", "action": "update", "conditional": true,
+###         "dependsOn": ["areaId"] }        ← resource attrs to send to /evaluate
+###     ],
+###     "generatedAt": "2026-07-23T…Z"
+###   }
+### Deterministic DENY and no-applicable-policy pairs are OMITTED. `dependsOn` is present
+### only on conditional pairs (omitted when empty). Needs the app's catalogue (ADR-028)
+### and, for claim-derived attributes, its configuration (ADR-029).
 
 ### C1) permissions in app "rh"
 GET {{host}}/v1/apps/rh/permissions
 Authorization: {{auth}}
 
-### EXPECTED  200 OK
-### {
-###   "subject": "<sub-from-jwt>",
-###   "app": "rh",
-###   "permissions": [],                 ← currently empty (option A); contract stable
-###   "policyVersion": "2",
-###   "evaluatedAt": "2026-07-14T…Z"
-### }
+### EXPECTED  200 OK, headers ETag + Cache-Control: private, max-age=30.
+### permissions[] holds the pairs the subject can act on; conditional tells you which
+### need a per-instance /evaluate call, dependsOn tells you what to send.
 
 
-### C2) 401 — no token (unauthenticated)
+### C2) revalidate — send back the ETag from C1
+GET {{host}}/v1/apps/rh/permissions
+Authorization: {{auth}}
+If-None-Match: "<etag-from-C1>"
+
+### EXPECTED  304 Not Modified (no body) when nothing changed within the 30s window.
+
+
+### C3) 401 — no token (unauthenticated)
 GET {{host}}/v1/apps/rh/permissions
 
 ### EXPECTED  401  (OIDC challenge, no problem+json body)
@@ -316,7 +327,8 @@ GET {{host}}/v1/apps/rh/permissions
 ### Decision          { allowed, reason, decisionId, policyVersion, obligations: [Obligation] }
 ### BatchEvaluationRequest { requests: [EvaluationRequest] }   ← all share the path's app
 ### BatchEvaluationResult  { decisions: [Decision] }           ← same order as requests
-### PermissionsResponse    { subject, app, permissions: [String], policyVersion, evaluatedAt }
+### PermissionsView   { app, subject, permissions: [PermissionEntry], generatedAt }  (ADR-030)
+### PermissionEntry   { resourceType, action, conditional, dependsOn?: [String] }
 ###
 ### Attribute paths in conditions: subject.id | subject.attr.* | resource.type |
 ###   resource.id | resource.attr.* | context.*

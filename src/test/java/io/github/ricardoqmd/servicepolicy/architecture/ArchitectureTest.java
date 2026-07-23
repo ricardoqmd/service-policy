@@ -23,8 +23,15 @@ import com.tngtech.archunit.lang.ArchRule;
  *   <li>R4 evaluationDoesNotDependOnRest — the evaluator is decoupled from the web layer;
  *       it reads active policies through {@code PolicyLifecycleStore} (ADR-021).
  *   <li>R5 noPackageCycles — no circular dependencies across any first-level sub-package
- *       ({@code domain}, {@code persistence}, {@code rest}, {@code evaluation}, {@code problem},
- *       {@code config}, {@code health}).
+ *       ({@code domain}, {@code persistence}, {@code rest}, {@code evaluation}, {@code enumeration},
+ *       {@code problem}, {@code config}, {@code health}).
+ *   <li>R6 enforcementDoesNotDependOnEnumeration — the ADR-030 structural safeguard: neither {@code ..evaluation..}
+ *       nor {@code ..domain..} may reach the three-valued {@code ..enumeration..} package, so the
+ *       {@code INDETERMINATE} value can never leak into an enforcement decision, which must stay
+ *       two-valued and fail-safe (ADR-011).
+ *   <li>R7 enumerationDoesNotDependOnRestOrEvaluation — the enumeration package sits below the web
+ *       and enforcement layers: it reads {@code domain} and {@code persistence} only, so its isolated
+ *       evaluation mode has no path back into either.
  * </ul>
  *
  * <p>NOTE: the {@code activeContent} verbatim invariant (ADR-020 §4) is intentionally NOT
@@ -88,4 +95,30 @@ public class ArchitectureTest {
     static final ArchRule noPackageCycles = slices().matching("io.github.ricardoqmd.servicepolicy.(*)..")
             .should()
             .beFreeOfCycles();
+
+    /**
+     * R6 — the ADR-030 structural isolation: enforcement (and the pure domain) must not reach the
+     * three-valued enumeration package. This is the build-breaking guarantee that {@code INDETERMINATE}
+     * cannot escape into a {@code Decision}; without it the isolation would be a convention.
+     */
+    @ArchTest
+    static final ArchRule enforcementDoesNotDependOnEnumeration = noClasses()
+            .that()
+            .resideInAnyPackage("..evaluation..", "..domain..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("..enumeration..");
+
+    /**
+     * R7 — the enumeration package depends only downward (domain, persistence, MicroProfile JWT). It
+     * must never import the web layer or the enforcement evaluator, so its second evaluation semantics
+     * has no route into either.
+     */
+    @ArchTest
+    static final ArchRule enumerationDoesNotDependOnRestOrEvaluation = noClasses()
+            .that()
+            .resideInAPackage("..enumeration..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("..rest..", "..evaluation..");
 }

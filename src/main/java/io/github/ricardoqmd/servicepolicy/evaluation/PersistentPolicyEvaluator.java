@@ -32,7 +32,8 @@ import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 @Singleton
 public class PersistentPolicyEvaluator implements PolicyEvaluator {
 
-    // TODO(bulk-permissions ADR): /v1/permissions has no policy-set version concept yet.
+    // Placeholder policyVersion for a decision taken before any policy is consulted (e.g. a blank
+    // resource type). A real policy-set version concept is out of scope here.
     private static final String POLICY_SET_VERSION = "0";
 
     private final PolicyLifecycleStore lifecycleStore;
@@ -94,18 +95,6 @@ public class PersistentPolicyEvaluator implements PolicyEvaluator {
                 decisionId,
                 String.valueOf(decision.policyVersion()),
                 List.of()); // domain obligations deferred (ADR-008)
-    }
-
-    @Override
-    public List<String> permittedActions(String subject, String app) {
-        // TODO(bulk-permissions ADR): bulk permission listing is a distinct mechanism from
-        // point-in-time ABAC evaluation; returning empty (fail-safe) until it has its own design.
-        return List.of();
-    }
-
-    @Override
-    public String policyVersion() {
-        return POLICY_SET_VERSION;
     }
 
     private AuthorizationRequest toAuthorizationRequest(String app, String subjectId, EvaluationRequest request) {
