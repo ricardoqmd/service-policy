@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/ricardoqmd/service-policy/compare/v0.4.2...v0.4.3) (2026-07-23)
+
+
+### Features
+
+* implement permission enumeration with three-valued evaluation ([#161](https://github.com/ricardoqmd/service-policy/issues/161)) ([ab06b3b](https://github.com/ricardoqmd/service-policy/commit/ab06b3b30d7a33ab7d43dc8dbf0645d3541a6d69))
+
 ## [0.4.2](https://github.com/ricardoqmd/service-policy/compare/v0.4.1...v0.4.2) (2026-07-22)
 
 
