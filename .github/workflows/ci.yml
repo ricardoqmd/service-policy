@@ -59,7 +59,7 @@ jobs:
       # fails (Clean as You Code). Runs after `verify` so it consumes the
       # compiled classes + JaCoCo report. Only the reference JDK.
       - name: SonarQube Cloud analysis
-        if: matrix.java == '21'
+        if: matrix.java == '21' && github.actor != 'dependabot[bot]'
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: ./mvnw -B sonar:sonar -Dsonar.qualitygate.wait=true
