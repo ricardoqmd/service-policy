@@ -130,6 +130,11 @@ service-policy:
     delegation:
       mode: role
       role: pdp-client
+  # Bounds on a single evaluation request (ADR-031). Left commented on purpose: the default
+  # lives in the config mapping (@WithDefault) so there is ONE source of truth for the number.
+  # Uncomment only to tune a deployment; a value below 1 fails startup validation.
+  # evaluation:
+  #   batch-max-size: 100
 
 # ═════════════════════════════════════════════════════════════
 # Profile: dev  (active when running `./mvnw quarkus:dev`)
