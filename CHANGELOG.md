@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.4](https://github.com/ricardoqmd/service-policy/compare/v0.4.3...v0.4.4) (2026-08-22)
+
+
+### Documentation
+
+* **adr:** record ADR-031 and ADR-032 ([#173](https://github.com/ricardoqmd/service-policy/issues/173)) ([6983ee8](https://github.com/ricardoqmd/service-policy/commit/6983ee88730df40fe7dafe19b9a914811429d038))
+
 ## [0.4.3](https://github.com/ricardoqmd/service-policy/compare/v0.4.2...v0.4.3) (2026-07-23)
 
 
