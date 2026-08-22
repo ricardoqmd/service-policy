@@ -14,9 +14,11 @@ import jakarta.inject.Singleton;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 
 /**
- * Caches computed permission enumerations, keyed by {@code (app, subject)} (ADR-030 §5).
+ * Caches computed permission enumerations, keyed by {@code (app, subject, attributes)} (ADR-030 §5,
+ * ADR-032 §4).
  *
  * <p>The response depends on the subject's derived attributes, the app's active policies, its
  * catalogue and its configuration — so no single stored version is a sound key. The cache therefore
@@ -78,18 +80,30 @@ public class PermissionsCache {
     }
 
     /**
-     * Returns the cached result for {@code (app, subject)}, computing and storing it on a miss or an
-     * expiry. {@code compute} runs only when there is nothing fresh to serve — a cache hit does no
-     * enumeration and, therefore, no attribute derivation.
+     * Returns the cached result for {@code (app, subject, subjectAttributes)}, computing and storing it
+     * on a miss or an expiry. {@code compute} runs only when there is nothing fresh to serve — a cache
+     * hit does no enumeration and, therefore, no attribute derivation.
+     *
+     * <p><strong>The attributes are part of a result's identity, not merely an input to it.</strong>
+     * The same person under two different attribute sets is the same {@code (app, subject)} but a
+     * different menu; keying on the pair alone served one of them under the other's key and — worse,
+     * because it outlives the TTL — gave both the same ETag, so a client revalidating with
+     * {@code If-None-Match} received {@code 304} and kept the wrong menu past expiry. Whoever computed
+     * the map passes it here: derived from claims on the {@code GET}, asserted in the body on
+     * {@code :enumerate}.
      */
-    public CachedPermissions get(String app, String subject, Supplier<List<EnumeratedPair>> compute) {
-        Entry entry = cache.get(key(app, subject));
+    public CachedPermissions get(
+            String app, String subject, Map<String, Object> subjectAttributes, Supplier<List<EnumeratedPair>> compute) {
+        String attributesDigest = digest(subjectAttributes);
+        String key = key(app, subject, attributesDigest);
+        Entry entry = cache.get(key);
         if (entry != null && !entry.isExpired()) {
             return entry.value();
         }
         List<EnumeratedPair> pairs = compute.get();
-        CachedPermissions computed = new CachedPermissions(pairs, Instant.now().toString(), etag(app, subject, pairs));
-        store(key(app, subject), computed);
+        CachedPermissions computed =
+                new CachedPermissions(pairs, Instant.now().toString(), etag(app, subject, attributesDigest, pairs));
+        store(key, computed);
         return computed;
     }
 
@@ -102,15 +116,55 @@ public class PermissionsCache {
         cache.put(key, new Entry(computed, System.nanoTime() + ttlNanos));
     }
 
-    private static String key(String app, String subject) {
-        return app + '\u001f' + subject;
+    /**
+     * The attribute digest is safe to join with a delimiter where the raw map would not be: it is a
+     * fixed-length hex string over a fixed alphabet, so it can neither contain the separator nor be
+     * padded to shift a field boundary. That is precisely why the map is hashed before it reaches here.
+     */
+    private static String key(String app, String subject, String attributesDigest) {
+        return app + '\u001f' + subject + '\u001f' + attributesDigest;
     }
 
     /**
-     * A strong validator over the app, the subject and the sorted entries — {@code generatedAt}
-     * excluded, since it changes every computation and would defeat revalidation.
+     * SHA-256 over the canonical JSON of the effective subject attributes, with map keys sorted at
+     * every level.
      *
-     * <p>The canonical form is the JSON serialization of {@code (app, subject, entries)}, hashed with
+     * <p>Same technique and same reason as {@link #etag}: attribute names and values are unvalidated
+     * free strings, so any delimiter-joined encoding could be forged — a caller choosing the single key
+     * {@code "a\u001fb"} could otherwise collide with the two keys {@code a} and {@code b}. A JSON
+     * serializer escapes every value and brackets every structure, so those two shapes serialize
+     * differently and hash differently.
+     *
+     * <p>Keys are sorted explicitly rather than trusted to arrive ordered: this map is deserialized
+     * from a request body, so its iteration order is the caller's, and two callers asserting the same
+     * attributes in a different order must land on the same entry. The ordering is applied through a
+     * writer copy, so the shared {@link ObjectMapper} is left alone, and it applies at every nesting
+     * level — which insertion order would not survive.
+     */
+    String digest(Map<String, Object> subjectAttributes) {
+        Map<String, Object> attributes = subjectAttributes == null ? Map.of() : subjectAttributes;
+        byte[] canonical;
+        try {
+            canonical = mapper.writer()
+                    .with(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
+                    .writeValueAsBytes(attributes);
+        } catch (JsonProcessingException e) {
+            // The bag is JSON that Jackson itself just parsed; re-serializing it cannot fail here.
+            throw new IllegalStateException("failed to serialize the subject attributes", e);
+        }
+        return sha256Hex(canonical);
+    }
+
+    /**
+     * A strong validator over the app, the subject, the attribute digest and the sorted entries —
+     * {@code generatedAt} excluded, since it changes every computation and would defeat revalidation.
+     *
+     * <p>The digest belongs in the hash for a sharper reason than it belongs in the cache key: a wrong
+     * key serves a stale menu until the TTL expires, but a wrong ETag makes the client's
+     * {@code If-None-Match} answer {@code 304} and keep the wrong menu past it. Both change or neither.
+     *
+     * <p>The canonical form is the JSON serialization of {@code (app, subject, attributes, entries)},
+     * hashed with
      * SHA-256. JSON rather than a delimiter-joined string on purpose: attribute names (and resource
      * types, actions) are unvalidated free strings, so any chosen joiner could be forged into a value
      * to shift a field boundary and make two different results hash alike. A JSON serializer escapes
@@ -119,10 +173,10 @@ public class PermissionsCache {
      * canonical (entries sorted by {@code (resourceType, action)}, each {@code dependsOn} sorted) and
      * the serializer is deterministic, so the same result always yields the same ETag.
      */
-    String etag(String app, String subject, List<EnumeratedPair> pairs) {
+    String etag(String app, String subject, String attributesDigest, List<EnumeratedPair> pairs) {
         byte[] canonical;
         try {
-            canonical = mapper.writeValueAsBytes(new CanonicalForm(app, subject, pairs));
+            canonical = mapper.writeValueAsBytes(new CanonicalForm(app, subject, attributesDigest, pairs));
         } catch (JsonProcessingException e) {
             // These are plain records of strings/booleans/lists; serialization cannot fail here.
             throw new IllegalStateException("failed to serialize the ETag canonical form", e);
@@ -147,7 +201,7 @@ public class PermissionsCache {
     }
 
     /** The exact structure hashed for the ETag; a record so Jackson serializes its fields in order. */
-    private record CanonicalForm(String app, String subject, List<EnumeratedPair> entries) {}
+    private record CanonicalForm(String app, String subject, String attributes, List<EnumeratedPair> entries) {}
 
     private record Entry(CachedPermissions value, long expiresAtNanos) {
 
