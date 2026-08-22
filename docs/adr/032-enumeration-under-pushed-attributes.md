@@ -199,8 +199,14 @@ memory and are not changed.
 
 ## Consequences
 
-- New resource method on `PermissionsResource` and a request record for the body; a body
-  carrying an `app` field is rejected with 400, as ADR-026 requires everywhere.
+- A **dedicated resource** owning the exact path — `PushedEnumerationResource`, as §1's
+  `:simulate` precedent already does — plus a request record for the body; a body carrying an
+  `app` field is rejected with 400, as ADR-026 requires everywhere. It cannot be a method on
+  `PermissionsResource`: the single-segment `:enumerate` suffix is not expressible as a sub-path
+  of the collection, because JAX-RS inserts a separator when it concatenates a method path onto
+  the class path, which is the same mechanical reason ADR-027 gives. The half both transports
+  share — the cache lookup, the ETag, the `304` and the view — is extracted into a collaborator
+  they both call, so "the response is identical to the `GET`" stays a property of the code.
 - `PermissionsCache.get` and `etag` take the effective attribute map (or its digest); the
   key function and `CanonicalForm` change shape. Existing cached entries are in-process only,
   so there is no migration.
