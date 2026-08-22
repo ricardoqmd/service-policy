@@ -27,6 +27,24 @@ public interface ServicePolicyConfig {
      */
     Authz authz();
 
+    /**
+     * Bounds the engine places on the work a single evaluation request may ask for (ADR-031).
+     */
+    Evaluation evaluation();
+
+    interface Evaluation {
+        /**
+         * Maximum number of items a single batch may carry.
+         *
+         * <p>Defaults to 100 — the same maximum the API already enforces for collection page size,
+         * so the surface gives one consistent answer to "how much may a single request ask for"
+         * (ADR-031 §1). Deployments with different traffic shapes may tune it; a value below 1 fails
+         * startup validation ({@link EvaluationConfigValidator}).
+         */
+        @WithDefault("100")
+        int batchMaxSize();
+    }
+
     interface Authz {
         /** Marker required to author policies via the control-plane endpoints. */
         Marker admin();

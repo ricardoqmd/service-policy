@@ -13,6 +13,7 @@ import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
+import io.github.ricardoqmd.servicepolicy.config.ServicePolicyConfig;
 import io.github.ricardoqmd.servicepolicy.evaluation.BatchEvaluationRequest;
 import io.github.ricardoqmd.servicepolicy.evaluation.BatchEvaluationResult;
 import io.github.ricardoqmd.servicepolicy.evaluation.Decision;
@@ -44,10 +45,12 @@ public class EvaluateResource {
 
     private final PolicyEvaluator evaluator;
     private final AuthContext authContext;
+    private final ServicePolicyConfig cfg;
 
-    EvaluateResource(PolicyEvaluator evaluator, AuthContext authContext) {
+    EvaluateResource(PolicyEvaluator evaluator, AuthContext authContext, ServicePolicyConfig cfg) {
         this.evaluator = evaluator;
         this.authContext = authContext;
+        this.cfg = cfg;
     }
 
     @POST
@@ -81,11 +84,28 @@ public class EvaluateResource {
             summary = "Evaluate a batch of authorization requests",
             description = "Evaluates multiple requests in a single call, all within the application named in the"
                     + " path (ADR-026). Results are returned in the same order as the input requests."
-                    + " Per-item resource-validation errors are returned as deny decisions (not HTTP"
-                    + " 400). An 'app' field on any item fails the entire batch with 400 — the scope is"
-                    + " the path's, and no item may claim its own. A delegation violation on any item"
-                    + " fails the entire batch with 403. Requires a valid Bearer token.")
+                    + " The batch carries between 1 and 'service-policy.evaluation.batch-max-size'"
+                    + " items (default 100, the same bound the API applies to collection page size);"
+                    + " an empty batch or one over the cap is rejected whole with 400, with no partial"
+                    + " processing (ADR-031). Per-item resource-validation errors are returned as deny"
+                    + " decisions (not HTTP 400). An 'app' field on any item fails the entire batch"
+                    + " with 400 — the scope is the path's, and no item may claim its own. A delegation"
+                    + " violation on any item fails the entire batch with 403. Requires a valid Bearer"
+                    + " token.")
     public Response batch(@PathParam("app") String app, BatchEvaluationRequest batchRequest) {
+        // Size is checked BEFORE anything is evaluated: the point of the cap is to bound the work
+        // the engine takes on, so it cannot be paid for by doing the work first (ADR-031).
+        if (batchRequest == null
+                || batchRequest.requests() == null
+                || batchRequest.requests().isEmpty()) {
+            throw new InvalidRequestException("'requests' must not be empty.");
+        }
+        int batchMaxSize = cfg.evaluation().batchMaxSize();
+        if (batchRequest.requests().size() > batchMaxSize) {
+            // Rejected whole, never truncated: a PEP that believes it evaluated N decisions and
+            // received fewer is the worst possible contract for an authorization engine (ADR-031).
+            throw new InvalidRequestException("'requests' must contain between 1 and " + batchMaxSize + " items.");
+        }
         List<Decision> decisions = batchRequest.requests().stream()
                 .map(r -> evaluator.evaluate(app, authContext.resolveEffectiveSubject(r.subject()), r))
                 .toList();

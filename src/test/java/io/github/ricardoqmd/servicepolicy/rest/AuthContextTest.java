@@ -128,6 +128,11 @@ class AuthContextTest {
             }
 
             @Override
+            public Evaluation evaluation() {
+                return null;
+            }
+
+            @Override
             public Authz authz() {
                 return new Authz() {
                     @Override

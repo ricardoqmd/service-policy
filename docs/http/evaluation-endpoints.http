@@ -218,6 +218,8 @@ Content-Type: application/json
 ###   Results are in the SAME ORDER as the input requests.
 ###   ⚠️ ALL items share the app of the PATH — an item cannot choose its own.
 ###   ⚠️ No item may carry `app` in its body → 400 for the WHOLE batch.
+###   ⚠️ Between 1 and `service-policy.evaluation.batch-max-size` items (default 100),
+###      else 400 for the WHOLE batch — never truncated (ADR-031). See B3.
 ###   A delegation violation on ANY item fails the whole batch with 403.
 
 ### B1) Batch — three decisions at once, all in app "rh"
@@ -269,6 +271,32 @@ Content-Type: application/json
 
 ### EXPECTED  400  code: "BAD_REQUEST"
 ### The whole batch fails; there is no partial result and no silent deny.
+
+
+### B3) 400 — the batch is over the size cap (ADR-031)
+### A batch carries between 1 and `service-policy.evaluation.batch-max-size` items
+### (default 100 — the same bound the API applies to collection page size). The engine
+### is consumed east-west by backends, with no gateway in front, so it bounds its own
+### work: one oversized request would otherwise monopolize the evaluator for everyone.
+### Uncomment and paste 101 items to see it.
+
+# POST {{host}}/v1/apps/rh/evaluate/batch
+# Authorization: {{auth}}
+# Content-Type: application/json
+#
+# {
+#   "requests": [
+#     { "action": "document:read", "resource": { "type": "document", "id": "d1" } }
+#     … 101 items total …
+#   ]
+# }
+
+### EXPECTED  400  code: "BAD_REQUEST"
+###           detail: "'requests' must contain between 1 and 100 items."
+### Rejected WHOLE and never truncated: a PEP that believes it evaluated 101 decisions
+### and received 100 is the worst possible contract for an authorization engine.
+### An empty or absent "requests" is the same 400, with detail
+### "'requests' must not be empty."
 
 
 ### ============================================================================
@@ -326,6 +354,7 @@ GET {{host}}/v1/apps/rh/permissions
 ### ResourceRef       { type*, id?, attributes?: {…} }
 ### Decision          { allowed, reason, decisionId, policyVersion, obligations: [Obligation] }
 ### BatchEvaluationRequest { requests: [EvaluationRequest] }   ← all share the path's app
+###                                                             1..batch-max-size items
 ### BatchEvaluationResult  { decisions: [Decision] }           ← same order as requests
 ### PermissionsView   { app, subject, permissions: [PermissionEntry], generatedAt }  (ADR-030)
 ### PermissionEntry   { resourceType, action, conditional, dependsOn?: [String] }
