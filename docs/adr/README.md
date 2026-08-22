@@ -7,38 +7,40 @@ both are kept for the audit trail.
 
 **Status legend:** Proposed · Accepted · Superseded · Deprecated
 
-|                       #                        |                                          Decision                                          |  Status  |
-|------------------------------------------------|--------------------------------------------------------------------------------------------|----------|
-| [001](001-dedicated-abac-pdp.md)               | Dedicated ABAC Policy Decision Point                                                       | Accepted |
-| [002](002-quarkus-java21.md)                   | Quarkus 3.x LTS + Java 21                                                                  | Accepted |
-| [003](003-authentication-oidc-jwt-jwks.md)     | Authentication input — OIDC/JWT validated via JWKS (IdP-agnostic; Keycloak as reference)   | Accepted |
-| [004](004-pep-contract-surface-and-stub.md)    | PEP contract surface and stub evaluator (Phase 1.5)                                        | Accepted |
-| [005](005-attribute-id-keying.md)              | Policy attributes key on stable id/code, never display text                                | Accepted |
-| [006](006-tenancy-model.md)                    | Tenancy model — tenant = institution = realm; silo deployment; rules as config             | Accepted |
-| [007](007-sonarqube-cloud-public-repo.md)      | SonarQube Cloud for the public repository                                                  | Accepted |
-| [008](008-mvp-policy-domain.md)                | MVP policy domain                                                                          | Accepted |
-| [009](009-test-coverage-tooling.md)            | Test coverage tooling and CDI scope convention                                             | Accepted |
-| [010](010-subject-attribute-provenance.md)     | Subject attribute provenance: caller-asserted, behind a port                               | Accepted |
-| [011](011-null-operand-semantics.md)           | Null operand semantics in condition comparisons                                            | Accepted |
-| [012](012-policy-authoring-contract.md)        | Policy authoring contract (`POST /v1/policies`)                                            | Accepted |
-| [013](013-pdp-endpoint-authorization.md)       | PDP endpoint authorization and subject provenance                                          | Accepted |
-| [014](014-policy-lifecycle-crud-contract.md)   | Policy lifecycle and CRUD contract (`/v1/policies`)                                        | Accepted |
-| [015](015-openapi-not-versioned.md)            | Do not version the generated OpenAPI specification                                         | Accepted |
-| [016](016-head-pointer-activation.md)          | Head-pointer activation model                                                              | Accepted |
-| [017](017-rest-response-contract.md)           | REST response contract — collection envelope, pagination, error shape                      | Accepted |
-| [018](018-error-response-contract.md)          | Error response contract — RFC 9457 problem+json, conditional writes (If-Match/ETag)        | Accepted |
-| [019](019-transaction-free-write-atomicity.md) | Transaction-free write atomicity — commit-point + self-healing                             | Accepted |
-| [020](020-activation-write-path.md)            | Activation write-path — explicit-version activate + deactivate, conditional single-doc     | Accepted |
-| [021](021-evaluator-cutover-head-pointer.md)   | Evaluator cutover to the head-pointer model; legacy single-collection path removed         | Accepted |
-| [022](022-quarkus-jacoco-coverage.md)          | Adopt quarkus-jacoco for coverage instrumentation (revisits ADR-009)                       | Accepted |
-| [023](023-operand-type-validation.md)          | Operand type validation — reject literal mistyping at authoring, deny at evaluation        | Accepted |
-| [024](024-application-scoping.md)              | Application scoping — `app` as a first-class policy dimension (policy, request, selection) | Accepted |
-| [025](025-policy-list-status-filter.md)        | Policy listing shows all lifecycle states — `?status=` filter (default `all`)              | Accepted |
-| [026](026-composite-policy-identity.md)        | Composite identity (app, policyId) + app-nested routes; app leaves request bodies          | Accepted |
-| [027](027-policy-simulation.md)                | Policy simulation — dry-run evaluation against an unsaved document (admin-gated)           | Accepted |
-| [028](028-action-catalogue.md)                 | Action catalogue per (app, resourceType); `*` expanded at authoring, never stored          | Accepted |
-| [029](029-per-app-configuration.md)            | Per-application configuration as administrable data, not deployment config                 | Accepted |
-| [030](030-permission-enumeration.md)           | Permission enumeration — three-valued evaluation without an instance (advisory)            | Accepted |
+|                         #                         |                                               Decision                                                |  Status  |
+|---------------------------------------------------|-------------------------------------------------------------------------------------------------------|----------|
+| [001](001-dedicated-abac-pdp.md)                  | Dedicated ABAC Policy Decision Point                                                                  | Accepted |
+| [002](002-quarkus-java21.md)                      | Quarkus 3.x LTS + Java 21                                                                             | Accepted |
+| [003](003-authentication-oidc-jwt-jwks.md)        | Authentication input — OIDC/JWT validated via JWKS (IdP-agnostic; Keycloak as reference)              | Accepted |
+| [004](004-pep-contract-surface-and-stub.md)       | PEP contract surface and stub evaluator (Phase 1.5)                                                   | Accepted |
+| [005](005-attribute-id-keying.md)                 | Policy attributes key on stable id/code, never display text                                           | Accepted |
+| [006](006-tenancy-model.md)                       | Tenancy model — tenant = institution = realm; silo deployment; rules as config                        | Accepted |
+| [007](007-sonarqube-cloud-public-repo.md)         | SonarQube Cloud for the public repository                                                             | Accepted |
+| [008](008-mvp-policy-domain.md)                   | MVP policy domain                                                                                     | Accepted |
+| [009](009-test-coverage-tooling.md)               | Test coverage tooling and CDI scope convention                                                        | Accepted |
+| [010](010-subject-attribute-provenance.md)        | Subject attribute provenance: caller-asserted, behind a port                                          | Accepted |
+| [011](011-null-operand-semantics.md)              | Null operand semantics in condition comparisons                                                       | Accepted |
+| [012](012-policy-authoring-contract.md)           | Policy authoring contract (`POST /v1/policies`)                                                       | Accepted |
+| [013](013-pdp-endpoint-authorization.md)          | PDP endpoint authorization and subject provenance                                                     | Accepted |
+| [014](014-policy-lifecycle-crud-contract.md)      | Policy lifecycle and CRUD contract (`/v1/policies`)                                                   | Accepted |
+| [015](015-openapi-not-versioned.md)               | Do not version the generated OpenAPI specification                                                    | Accepted |
+| [016](016-head-pointer-activation.md)             | Head-pointer activation model                                                                         | Accepted |
+| [017](017-rest-response-contract.md)              | REST response contract — collection envelope, pagination, error shape                                 | Accepted |
+| [018](018-error-response-contract.md)             | Error response contract — RFC 9457 problem+json, conditional writes (If-Match/ETag)                   | Accepted |
+| [019](019-transaction-free-write-atomicity.md)    | Transaction-free write atomicity — commit-point + self-healing                                        | Accepted |
+| [020](020-activation-write-path.md)               | Activation write-path — explicit-version activate + deactivate, conditional single-doc                | Accepted |
+| [021](021-evaluator-cutover-head-pointer.md)      | Evaluator cutover to the head-pointer model; legacy single-collection path removed                    | Accepted |
+| [022](022-quarkus-jacoco-coverage.md)             | Adopt quarkus-jacoco for coverage instrumentation (revisits ADR-009)                                  | Accepted |
+| [023](023-operand-type-validation.md)             | Operand type validation — reject literal mistyping at authoring, deny at evaluation                   | Accepted |
+| [024](024-application-scoping.md)                 | Application scoping — `app` as a first-class policy dimension (policy, request, selection)            | Accepted |
+| [025](025-policy-list-status-filter.md)           | Policy listing shows all lifecycle states — `?status=` filter (default `all`)                         | Accepted |
+| [026](026-composite-policy-identity.md)           | Composite identity (app, policyId) + app-nested routes; app leaves request bodies                     | Accepted |
+| [027](027-policy-simulation.md)                   | Policy simulation — dry-run evaluation against an unsaved document (admin-gated)                      | Accepted |
+| [028](028-action-catalogue.md)                    | Action catalogue per (app, resourceType); `*` expanded at authoring, never stored                     | Accepted |
+| [029](029-per-app-configuration.md)               | Per-application configuration as administrable data, not deployment config                            | Accepted |
+| [030](030-permission-enumeration.md)              | Permission enumeration — three-valued evaluation without an instance (advisory)                       | Accepted |
+| [031](031-batch-evaluation-cap.md)                | Batch evaluation size cap (1–100, configurable, 400 on violation)                                     | Accepted |
+| [032](032-enumeration-under-pushed-attributes.md) | Permission enumeration under pushed subject attributes (`:enumerate`, cache/ETag keyed by attributes) | Accepted |
 
 ## Relationships
 
@@ -98,6 +100,23 @@ both are kept for the audit trail.
   must supply. The mode is isolated from enforcement by construction — ADR-011/ADR-023 keep an
   unresolvable operand denying on `/evaluate`, and the build breaks if the two are wired
   together.
+- **ADR-031 refines ADR-004 and ADR-018.** The batch surface was the one interaction with no
+  bound on how much a single request may ask for, while collection listings already cap
+  `size` at 100. It adopts that same maximum rather than inventing a second one, as a
+  configurable property with a fail-fast floor, and rejects a violation whole under the
+  existing `400 BAD_REQUEST` — a second status for the same class of mistake would fragment
+  the error contract, and silent truncation in an authorization engine is the worst
+  available answer.
+- **ADR-032 refines ADR-030 (transport only).** Enumeration resolved subject attributes from
+  token claims (ADR-029) while `/evaluate` resolved them from the caller (ADR-010). When the
+  authorization role moved out of the identity provider, only the second channel was fed, so
+  enumeration degraded to "everything is conditional" — safe, and uninformative. A `POST`
+  `:enumerate` sibling accepts a pushed attribute bag under the same ADR-013 §5 subject rule,
+  with derivation deliberately not running on that path: attributing the calling service
+  account's claims to another subject is the forgery ADR-010 prevents. The three-valued
+  computation, the advisory stance and the response shape are unchanged. The transport also
+  exposed a latent defect — the cache key and the ETag ignored the attributes the result came
+  from — fixed on both paths.
 
 ## Notes
 
