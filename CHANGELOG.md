@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/ricardoqmd/service-policy/compare/v0.5.0...v0.5.1) (2026-08-22)
+
+
+### Features
+
+* **permissions:** enumerate with pushed subject attributes (ADR-032) ([#180](https://github.com/ricardoqmd/service-policy/issues/180)) ([968f08c](https://github.com/ricardoqmd/service-policy/commit/968f08ced9d41b46ef30bc3718f37ce95d90872b))
+
 ## [0.5.0](https://github.com/ricardoqmd/service-policy/compare/v0.4.4...v0.5.0) (2026-08-22)
 
 
