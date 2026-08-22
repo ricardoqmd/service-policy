@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/ricardoqmd/service-policy/compare/v0.4.4...v0.5.0) (2026-08-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **evaluate:** a batch larger than the configured maximum is now rejected with 400 instead of evaluated. Callers sending more than 100 items must split them.
+
+### Features
+
+* **evaluate:** cap the batch evaluation size (ADR-031) ([#176](https://github.com/ricardoqmd/service-policy/issues/176)) ([7ecf030](https://github.com/ricardoqmd/service-policy/commit/7ecf030efa6fd700379b61dd19c909c54a0c0d13))
+
 ## [0.4.4](https://github.com/ricardoqmd/service-policy/compare/v0.4.3...v0.4.4) (2026-08-22)
 
 
