@@ -23,9 +23,17 @@ import io.quarkus.mongodb.panache.common.MongoEntity;
  *
  * <p>{@code revision} is the ETag the conditional writes CAS against (ADR-018), starting at 1: a
  * configuration is created with content, so there is no empty revision-0 state to distinguish.
+ *
+ * <p>{@code schemaVersion} names the shape the document was written in (ADR-034). It is written on
+ * creation and no replace touches it: a replace sets the two sections, never the shape they sit in.
  */
-@MongoEntity(collection = "app_configs")
+@MongoEntity(collection = AppConfigDocument.COLLECTION)
 public class AppConfigDocument {
+
+    static final String COLLECTION = "app_configs";
+
+    /** The shape this build writes, and the only one it reads. */
+    static final int SCHEMA_VERSION = 1;
 
     public ObjectId id;
     public String app;
@@ -33,6 +41,13 @@ public class AppConfigDocument {
     public Document pip; // null when the app configures no attribute source
     public long revision;
     public Document audit;
+
+    /**
+     * Set at construction, so every document this build inserts carries it; and what makes an absent
+     * marker read as shape 1 (ADR-034 §3), because the codec sets only the fields the stored document
+     * has.
+     */
+    public int schemaVersion = SCHEMA_VERSION;
 
     public AppConfigDocument() {
         // required by the MongoDB POJO codec

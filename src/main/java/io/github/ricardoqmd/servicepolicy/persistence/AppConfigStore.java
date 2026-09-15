@@ -55,6 +55,7 @@ public class AppConfigStore {
     private static final String AUDIT = "audit";
     private static final String CREATED_BY = "createdBy";
     private static final String CREATED_AT = "createdAt";
+    private static final String SCHEMA_VERSION = "schemaVersion";
 
     private final AppConfigRepository repository;
     private final AppConfigProvider provider;
@@ -66,7 +67,7 @@ public class AppConfigStore {
 
     /** @return the app's configuration, if it has one. */
     public Optional<AppConfig> find(String app) {
-        return repository.findByApp(app).map(AppConfigMapper::toAppConfig);
+        return repository.findByApp(app).map(AppConfigStore::recognised).map(AppConfigMapper::toAppConfig);
     }
 
     /**
@@ -117,7 +118,7 @@ public class AppConfigStore {
         UpdateResult cas = repository
                 .mongoCollection()
                 .updateOne(
-                        Filters.and(identity(app), Filters.eq(REVISION, ifMatch)),
+                        writable(app, ifMatch),
                         Updates.combine(
                                 Updates.set(
                                         SUBJECT_ATTRIBUTES,
@@ -146,8 +147,7 @@ public class AppConfigStore {
     public void delete(String app, long ifMatch) {
         requirePrecondition(app, ifMatch);
 
-        DeleteResult result =
-                repository.mongoCollection().deleteOne(Filters.and(identity(app), Filters.eq(REVISION, ifMatch)));
+        DeleteResult result = repository.mongoCollection().deleteOne(writable(app, ifMatch));
 
         if (result.getDeletedCount() == 0) {
             throw staleOrMissing(app);
@@ -163,10 +163,14 @@ public class AppConfigStore {
      * seen, and the only useful answer is "reload and look again".
      *
      * <p>Best-effort by construction — this is a read, so another writer can still slip in before the
-     * CAS. The CAS remains the commit point and the authority (ADR-018/ADR-019).
+     * CAS. The CAS remains the commit point and the authority (ADR-018/ADR-019), and it is the CAS, not
+     * this read, that carries the shape condition (ADR-034 §8).
      */
     private void requirePrecondition(String app, long ifMatch) {
-        AppConfigDocument current = repository.findByApp(app).orElseThrow(() -> new AppConfigNotFoundException(app));
+        AppConfigDocument current = repository
+                .findByApp(app)
+                .map(AppConfigStore::recognised)
+                .orElseThrow(() -> new AppConfigNotFoundException(app));
         if (current.revision != ifMatch) {
             throw PreconditionFailedException.forAppConfiguration(app, current.revision);
         }
@@ -178,20 +182,50 @@ public class AppConfigStore {
     }
 
     /**
-     * A CAS that matched nothing is either a stale If-Match on an existing document (412) or one that
-     * no longer exists (404).
+     * The condition of every write to an existing configuration: its identity, the caller's
+     * {@code If-Match}, and a shape this build knows (ADR-034 §8) — in the write itself, not in the read
+     * before it. A document of an unknown shape fails the CAS like a stale revision, and
+     * {@link #staleOrMissing} re-reads it through {@link #recognised}, which refuses it.
+     */
+    private static Bson writable(String app, long ifMatch) {
+        return Filters.and(
+                identity(app),
+                Filters.eq(REVISION, ifMatch),
+                StoredDocumentSchemaCondition.writable(SCHEMA_VERSION, AppConfigDocument.SCHEMA_VERSION));
+    }
+
+    /**
+     * A CAS that matched nothing is either a stale If-Match on an existing document (412), one that no
+     * longer exists (404), or one whose shape this build does not know — which the re-read refuses with
+     * {@link StoredDocumentSchemaException} before either could be decided.
      *
-     * <p><strong>Reachable only under concurrency, and deliberately untested.</strong>
-     * {@link #requirePrecondition} has already read the document and compared revisions, so
-     * single-threaded this cannot fire: getting here means another writer replaced or deleted the
-     * document between that read and this CAS. It stays because the CAS — not the courtesy check
-     * above — is the commit point, and this is what makes its verdict safe to act on.
+     * <p>{@link #requirePrecondition} has already read the document and compared revisions, so getting
+     * here means another writer replaced, deleted or reshaped the document between that read and this
+     * CAS — or that its marker is malformed in a way the read tolerates and the write does not (ADR-034
+     * §11), which answers 412 until a person repairs it. It stays because the CAS — not the courtesy
+     * check above — is the commit point, and this is what makes its verdict safe to act on.
      */
     private ProblemException staleOrMissing(String app) {
         return find(app)
                 .map(existing ->
                         (ProblemException) PreconditionFailedException.forAppConfiguration(app, existing.revision()))
                 .orElseGet(() -> new AppConfigNotFoundException(app));
+    }
+
+    /**
+     * The one entry point through which a configuration document read back from storage reaches
+     * anything else (ADR-034 §7). Every read of the collection passes through here before any field is
+     * used — {@link AppConfigProvider}'s included, which is why this is static and package-private: the
+     * provider is this store's dependency, so it cannot inject the store, and still has to be guarded.
+     *
+     * @throws StoredDocumentSchemaException if the marker names a shape this build does not know.
+     */
+    static AppConfigDocument recognised(AppConfigDocument document) {
+        if (document.schemaVersion != AppConfigDocument.SCHEMA_VERSION) {
+            throw new StoredDocumentSchemaException(
+                    AppConfigDocument.COLLECTION, document.id, SCHEMA_VERSION, document.schemaVersion);
+        }
+        return document;
     }
 
     /** Same field names and shape as the head and catalogue audits; configuration has no changeReason. */
