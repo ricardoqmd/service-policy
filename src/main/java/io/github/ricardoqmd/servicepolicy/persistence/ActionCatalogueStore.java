@@ -58,6 +58,7 @@ public class ActionCatalogueStore {
     private static final String AUDIT = "audit";
     private static final String CREATED_BY = "createdBy";
     private static final String CREATED_AT = "createdAt";
+    private static final String SCHEMA_VERSION = "schemaVersion";
 
     private final ActionCatalogueRepository repository;
     private final PolicyLifecycleStore policyStore;
@@ -69,7 +70,10 @@ public class ActionCatalogueStore {
 
     /** @return the entry for {@code (app, resourceType)}, if the app declares that resource type. */
     public Optional<ActionCatalogueEntry> find(String app, String resourceType) {
-        return repository.findByAppAndResourceType(app, resourceType).map(ActionCatalogueStore::entry);
+        return repository
+                .findByAppAndResourceType(app, resourceType)
+                .map(ActionCatalogueStore::recognised)
+                .map(ActionCatalogueStore::entry);
     }
 
     /**
@@ -79,6 +83,7 @@ public class ActionCatalogueStore {
      */
     public List<ActionCatalogueEntry> list(String app) {
         return repository.findByApp(app).stream()
+                .map(ActionCatalogueStore::recognised)
                 .map(ActionCatalogueStore::entry)
                 .toList();
     }
@@ -130,7 +135,7 @@ public class ActionCatalogueStore {
         UpdateResult cas = repository
                 .mongoCollection()
                 .updateOne(
-                        Filters.and(identity(app, resourceType), Filters.eq(REVISION, ifMatch)),
+                        writable(app, resourceType, ifMatch),
                         Updates.combine(
                                 Updates.set(ACTIONS, List.copyOf(actions)),
                                 Updates.set(AUDIT, auditDocument(callerSubject)),
@@ -157,9 +162,7 @@ public class ActionCatalogueStore {
 
         rejectIfInUse(app, resourceType, current.actions);
 
-        DeleteResult result = repository
-                .mongoCollection()
-                .deleteOne(Filters.and(identity(app, resourceType), Filters.eq(REVISION, ifMatch)));
+        DeleteResult result = repository.mongoCollection().deleteOne(writable(app, resourceType, ifMatch));
 
         if (result.getDeletedCount() == 0) {
             throw staleOrMissing(app, resourceType);
@@ -176,7 +179,8 @@ public class ActionCatalogueStore {
      *
      * <p>Best-effort by construction: this is a read, so another writer can still slip in before the
      * CAS below. The CAS remains the authority — it is the commit point, and a precondition that was
-     * true here but false there still fails there (ADR-018/ADR-019).
+     * true here but false there still fails there (ADR-018/ADR-019). The shape condition is the CAS's
+     * too, not this read's (ADR-034 §8).
      *
      * @throws CatalogueEntryNotFoundException (404) if the app does not declare that resource type.
      * @throws PreconditionFailedException (412) if {@code ifMatch} does not match the current revision.
@@ -184,6 +188,7 @@ public class ActionCatalogueStore {
     private ActionCatalogueDocument requirePrecondition(String app, String resourceType, long ifMatch) {
         ActionCatalogueDocument current = repository
                 .findByAppAndResourceType(app, resourceType)
+                .map(ActionCatalogueStore::recognised)
                 .orElseThrow(() -> new CatalogueEntryNotFoundException(app, resourceType));
         if (current.revision != ifMatch) {
             throw PreconditionFailedException.forCatalogueEntry(app, resourceType, current.revision);
@@ -222,18 +227,31 @@ public class ActionCatalogueStore {
     }
 
     /**
-     * A CAS that matched nothing is either a stale If-Match on an existing entry (412) or an entry
-     * that does not exist in this app (404) — the same disambiguation the policy store performs.
+     * The condition of every write to an existing entry: its identity, the caller's {@code If-Match},
+     * and a shape this build knows (ADR-034 §8) — in the write itself, not in the read before it. An
+     * entry of an unknown shape fails the CAS like a stale revision, and {@link #staleOrMissing} re-reads
+     * it through {@link #recognised}, which refuses it.
+     */
+    private static Bson writable(String app, String resourceType, long ifMatch) {
+        return Filters.and(
+                identity(app, resourceType),
+                Filters.eq(REVISION, ifMatch),
+                StoredDocumentSchemaCondition.writable(SCHEMA_VERSION, ActionCatalogueDocument.SCHEMA_VERSION));
+    }
+
+    /**
+     * A CAS that matched nothing is either a stale If-Match on an existing entry (412), an entry that
+     * does not exist in this app (404), or one whose shape this build does not know — which the re-read
+     * refuses with {@link StoredDocumentSchemaException} before either could be decided. The same
+     * disambiguation the policy store performs.
      *
-     * <p><strong>Reachable only under concurrency, and deliberately untested.</strong>
-     * {@link #requirePrecondition} has already read the entry and checked the revision, so
-     * single-threaded this branch cannot fire: the only way to get here is for another writer to
-     * replace or delete the entry between that read and this CAS. Keeping it is not defensive
-     * clutter — the CAS is the commit point (ADR-018/ADR-019) and the precondition check above is
-     * merely a courtesy that answers stale clients with the right status; this resolution is what
-     * makes the commit point's own verdict safe. It stays uncovered because reproducing it would
-     * mean orchestrating a write between two statements of this method, which buys a covered line
-     * and no confidence.
+     * <p>{@link #requirePrecondition} has already read the entry and checked the revision, so getting
+     * here means another writer replaced, deleted or reshaped the entry between that read and this CAS
+     * — or that its marker is malformed in a way the read tolerates and the write does not (ADR-034
+     * §11), which answers 412 until a person repairs it. Keeping it is not defensive clutter — the CAS
+     * is the commit point (ADR-018/ADR-019) and the precondition check above is merely a courtesy that
+     * answers stale clients with the right status; this resolution is what makes the commit point's own
+     * verdict safe.
      */
     private ProblemException staleOrMissing(String app, String resourceType) {
         return find(app, resourceType)
@@ -246,6 +264,22 @@ public class ActionCatalogueStore {
     private static Document auditDocument(String callerSubject) {
         return new Document(CREATED_BY, callerSubject)
                 .append(CREATED_AT, Instant.now().toString());
+    }
+
+    /**
+     * The one entry point through which a catalogue entry read back from storage reaches anything else
+     * (ADR-034 §7). Every read of the collection passes through here before any field is used —
+     * {@link ActionCatalogueResolver}'s included, which is why this is static and package-private: the
+     * resolver reads the repository without depending on this store, and still has to be guarded.
+     *
+     * @throws StoredDocumentSchemaException if the marker names a shape this build does not know.
+     */
+    static ActionCatalogueDocument recognised(ActionCatalogueDocument document) {
+        if (document.schemaVersion != ActionCatalogueDocument.SCHEMA_VERSION) {
+            throw new StoredDocumentSchemaException(
+                    ActionCatalogueDocument.COLLECTION, document.id, SCHEMA_VERSION, document.schemaVersion);
+        }
+        return document;
     }
 
     private static ActionCatalogueEntry entry(ActionCatalogueDocument document) {

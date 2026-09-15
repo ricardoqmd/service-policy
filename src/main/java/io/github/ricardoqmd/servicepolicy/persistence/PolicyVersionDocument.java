@@ -15,9 +15,18 @@ import io.quarkus.mongodb.panache.common.MongoEntity;
  *
  * <p>{@code app} is stored on the version too — it is part of the identity, and {@code content} no
  * longer carries it (the server takes it from the path, ADR-026).
+ *
+ * <p>{@code schemaVersion} names the shape this document — {@code content} included — was written in
+ * (ADR-034). It is not {@code version}, which is the policy's. Written once with the document and never
+ * altered, like everything else here. A head that copies {@code content} copies this marker with it.
  */
-@MongoEntity(collection = "policy_versions")
+@MongoEntity(collection = PolicyVersionDocument.COLLECTION)
 public class PolicyVersionDocument {
+
+    static final String COLLECTION = "policy_versions";
+
+    /** The shape this build writes, and the only one it reads. */
+    static final int SCHEMA_VERSION = 1;
 
     public ObjectId id;
     public String app;
@@ -25,6 +34,14 @@ public class PolicyVersionDocument {
     public int version;
     public Document content;
     public Document audit;
+
+    /**
+     * Set here, at construction, so every document this build inserts carries it. It is also what
+     * makes an absent marker read as shape 1 (ADR-034 §3): the codec constructs the object and sets
+     * only the fields the stored document has, so a document written before the marker existed keeps
+     * this value.
+     */
+    public int schemaVersion = SCHEMA_VERSION;
 
     public PolicyVersionDocument() {
         // required by the MongoDB POJO codec

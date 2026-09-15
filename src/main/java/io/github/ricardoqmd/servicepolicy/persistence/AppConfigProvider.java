@@ -54,8 +54,13 @@ public class AppConfigProvider {
         if (cached != null && !cached.isExpired()) {
             return Optional.ofNullable(cached.value());
         }
-        AppConfig loaded =
-                repository.findByApp(app).map(AppConfigMapper::toAppConfig).orElse(null);
+        // Guarded before the cache sees it: a document of an unknown shape fails this read and is not
+        // remembered, so the next read fails the same way instead of being served from the cache.
+        AppConfig loaded = repository
+                .findByApp(app)
+                .map(AppConfigStore::recognised)
+                .map(AppConfigMapper::toAppConfig)
+                .orElse(null);
         cache.put(app, CachedConfig.of(loaded));
         return Optional.ofNullable(loaded);
     }

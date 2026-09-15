@@ -23,9 +23,11 @@ import io.github.ricardoqmd.servicepolicy.problem.ProblemDetail;
  * as the offending field. No new error code: an uncatalogued action is a bad policy document, not a
  * new error class.
  *
- * <p>Depends only on {@link ActionCatalogueRepository}, never on {@link ActionCatalogueStore} — the
+ * <p>Injects only {@link ActionCatalogueRepository}, never the {@link ActionCatalogueStore} bean — the
  * store depends on {@link PolicyLifecycleStore}, which depends on this resolver, so the bean graph
- * stays acyclic.
+ * stays acyclic. It does call the store's static schema guard ({@link ActionCatalogueStore#recognised}),
+ * which is not a bean dependency: every read of a catalogue entry goes through that one guard (ADR-034
+ * §7), this one included.
  */
 // @Singleton (not @ApplicationScoped): stateless bean, no proxy needed (see ADR-009).
 @Singleton
@@ -58,6 +60,7 @@ public class ActionCatalogueResolver {
 
         List<String> catalogue = repository
                 .findByAppAndResourceType(app, policy.resourceType())
+                .map(ActionCatalogueStore::recognised)
                 .map(document -> document.actions)
                 .orElseThrow(() -> invalid("no action catalogue for resource type '" + policy.resourceType()
                         + "' in this app; declare the catalogue before authoring"));

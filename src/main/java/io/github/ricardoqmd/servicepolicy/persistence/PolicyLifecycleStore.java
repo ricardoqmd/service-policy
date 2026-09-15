@@ -45,6 +45,9 @@ public class PolicyLifecycleStore {
     private static final Logger log = Logger.getLogger(PolicyLifecycleStore.class);
     private static final int DUPLICATE_KEY_CODE = 11000;
 
+    private static final String SCHEMA_VERSION = "schemaVersion";
+    private static final String ACTIVE_CONTENT_SCHEMA_VERSION = "activeContentSchemaVersion";
+
     private final PolicyHeadRepository headRepository;
     private final PolicyVersionRepository versionRepository;
     private final ActionCatalogueResolver catalogueResolver;
@@ -66,6 +69,7 @@ public class PolicyLifecycleStore {
      */
     public List<PolicyHead> findHeads(String app, HeadStatus status, int pageIndex, int size) {
         return headRepository.findHeads(app, status, pageIndex, size).stream()
+                .map(PolicyLifecycleStore::recognisedHead)
                 .map(mapper::head)
                 .toList();
     }
@@ -77,7 +81,10 @@ public class PolicyLifecycleStore {
 
     /** @return the head for the given identity {@code (app, policyId)} (ADR-026), if present. */
     public Optional<PolicyHead> findHead(String app, String policyId) {
-        return headRepository.findByAppAndPolicyId(app, policyId).map(mapper::head);
+        return headRepository
+                .findByAppAndPolicyId(app, policyId)
+                .map(PolicyLifecycleStore::recognisedHead)
+                .map(mapper::head);
     }
 
     /** @return {@code true} if a head exists for the given identity {@code (app, policyId)}. */
@@ -88,6 +95,7 @@ public class PolicyLifecycleStore {
     /** @return versions of the given policy (newest first) for the requested zero-based page. */
     public List<PolicyVersion> findVersions(String app, String policyId, int pageIndex, int size) {
         return versionRepository.findByAppAndPolicyId(app, policyId, pageIndex, size).stream()
+                .map(PolicyLifecycleStore::recognisedVersion)
                 .map(mapper::version)
                 .toList();
     }
@@ -101,6 +109,7 @@ public class PolicyLifecycleStore {
     public Optional<PolicyVersion> findVersion(String app, String policyId, int version) {
         return versionRepository
                 .findByAppAndPolicyIdAndVersion(app, policyId, version)
+                .map(PolicyLifecycleStore::recognisedVersion)
                 .map(mapper::version);
     }
 
@@ -117,6 +126,7 @@ public class PolicyLifecycleStore {
      */
     public List<Policy> activePoliciesFor(String app, String resourceType) {
         return headRepository.findActiveByAppAndResourceType(app, resourceType).stream()
+                .map(PolicyLifecycleStore::recognisedHead)
                 .filter(head -> {
                     boolean sameApp = app.equals(head.app);
                     if (!sameApp) {
@@ -156,7 +166,12 @@ public class PolicyLifecycleStore {
                 .append("activeVersion", null)
                 .append("activeContent", null)
                 .append("revision", 0L)
-                .append("audit", auditDoc);
+                .append("audit", auditDoc)
+                // A raw document, so the POJO's field initialisers do not reach it: the head's own marker
+                // is written here (ADR-034 §2). There is no content-marker: a new head holds no copied
+                // content, and a marker exists only while its content does (ADR-034 §9). $setOnInsert
+                // leaves an existing head as it was — no backfill.
+                .append(SCHEMA_VERSION, PolicyHeadDocument.SCHEMA_VERSION);
         try {
             headRepository
                     .mongoCollection()
@@ -208,18 +223,24 @@ public class PolicyLifecycleStore {
             throw new PolicyNotFoundException(app, policyId);
         }
 
+        // Read before the CAS only to refuse: a latest version of a shape this build does not know is
+        // refused here, before the revision moves (ADR-034 §8). The number is not taken from this read.
+        latestVersion(app, policyId);
+
         UpdateResult cas = headRepository
                 .mongoCollection()
-                .updateOne(
-                        Filters.and(identity(app, policyId), Filters.eq("revision", ifMatch)),
-                        Updates.inc("revision", 1L));
+                .updateOne(writableHead(app, policyId, ifMatch), Updates.inc("revision", 1L));
 
         if (cas.getMatchedCount() == 0) {
             throw staleOrMissing(app, policyId);
         }
 
-        List<PolicyVersionDocument> latest = versionRepository.findByAppAndPolicyId(app, policyId, 0, 1);
-        int nextVersion = latest.isEmpty() ? 1 : latest.get(0).version + 1;
+        // Read again after the CAS, on purpose: ADR-019 §2 takes max(version) + 1 fresh *after* winning it,
+        // which is what makes the number collision-free. It still passes through the guard: a version of an
+        // unknown shape inserted between the two reads is refused here, with the revision already advanced
+        // and no version written — the same benign revision gap ADR-019 accepts for a crash at this point.
+        int nextVersion =
+                latestVersion(app, policyId).map(latest -> latest.version + 1).orElse(1);
 
         Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
         PolicyVersionDocument versionDoc = mapper.toVersionDocument(app, policyId, nextVersion, content, auditDoc);
@@ -241,8 +262,9 @@ public class PolicyLifecycleStore {
      */
     public PolicyHead activate(
             String app, String policyId, int version, long ifMatch, String callerSubject, String changeReason) {
-        Optional<PolicyVersionDocument> versionDocOpt =
-                versionRepository.findByAppAndPolicyIdAndVersion(app, policyId, version);
+        Optional<PolicyVersionDocument> versionDocOpt = versionRepository
+                .findByAppAndPolicyIdAndVersion(app, policyId, version)
+                .map(PolicyLifecycleStore::recognisedVersion);
         if (versionDocOpt.isEmpty()) {
             if (headExists(app, policyId)) {
                 throw new VersionNotFoundException(app, policyId, version);
@@ -255,10 +277,14 @@ public class PolicyLifecycleStore {
         UpdateResult cas = headRepository
                 .mongoCollection()
                 .updateOne(
-                        Filters.and(identity(app, policyId), Filters.eq("revision", ifMatch)),
+                        // The head's own marker only: this replaces activeContent and its marker whole, so a
+                        // content marker this build does not know is overwritten, not an obstacle.
+                        writableHead(app, policyId, ifMatch),
                         Updates.combine(
                                 Updates.set("activeVersion", version),
                                 Updates.set("activeContent", versionDoc.content),
+                                // The copy takes the source's marker with it (ADR-034 §2).
+                                Updates.set(ACTIVE_CONTENT_SCHEMA_VERSION, versionDoc.schemaVersion),
                                 Updates.set("audit", auditDoc),
                                 Updates.inc("revision", 1L)));
 
@@ -281,10 +307,13 @@ public class PolicyLifecycleStore {
         UpdateResult cas = headRepository
                 .mongoCollection()
                 .updateOne(
-                        Filters.and(identity(app, policyId), Filters.eq("revision", ifMatch)),
+                        writableHead(app, policyId, ifMatch),
                         Updates.combine(
                                 Updates.set("activeVersion", null),
                                 Updates.set("activeContent", null),
+                                // The content goes, and its marker with it: removed, not set to a value
+                                // (ADR-034 §9).
+                                Updates.unset(ACTIVE_CONTENT_SCHEMA_VERSION),
                                 Updates.set("audit", auditDoc),
                                 Updates.inc("revision", 1L)));
 
@@ -295,19 +324,109 @@ public class PolicyLifecycleStore {
         return findHead(app, policyId).orElseThrow(() -> new PolicyNotFoundException(app, policyId));
     }
 
+    /**
+     * The one entry point through which a head read back from storage reaches anything else (ADR-034
+     * §7). Every read of a head in this store passes through here before any of its fields is used,
+     * including the reads that never reach a mapper.
+     *
+     * <p>Both markers are checked: {@code activeContentSchemaVersion} names a version's shape, so it is
+     * judged against the versions' marker, not the head's — and only while there is content for it to
+     * describe (ADR-034 §9). A head without content is not refused over a marker left beside nothing,
+     * which also keeps readable a head stored with one before deactivation began removing it.
+     *
+     * @throws StoredDocumentSchemaException if either marker names a shape this build does not know.
+     */
+    private static PolicyHeadDocument recognisedHead(PolicyHeadDocument head) {
+        recognisedOwnShape(head);
+        if (head.activeContent != null && head.activeContentSchemaVersion != PolicyVersionDocument.SCHEMA_VERSION) {
+            throw new StoredDocumentSchemaException(
+                    PolicyHeadDocument.COLLECTION,
+                    head.id,
+                    ACTIVE_CONTENT_SCHEMA_VERSION,
+                    head.activeContentSchemaVersion);
+        }
+        return head;
+    }
+
+    /**
+     * The head's own shape only, for the one read that uses nothing of the head but its revision
+     * ({@link #staleOrMissing}). Every read that returns a head, and so its content, goes through
+     * {@link #recognisedHead} instead.
+     *
+     * @throws StoredDocumentSchemaException if the head's own marker names a shape this build does not know.
+     */
+    private static PolicyHeadDocument recognisedOwnShape(PolicyHeadDocument head) {
+        if (head.schemaVersion != PolicyHeadDocument.SCHEMA_VERSION) {
+            throw new StoredDocumentSchemaException(
+                    PolicyHeadDocument.COLLECTION, head.id, SCHEMA_VERSION, head.schemaVersion);
+        }
+        return head;
+    }
+
+    /**
+     * The same entry point for a version: every read of one in this store passes through here first
+     * (ADR-034 §7).
+     *
+     * @throws StoredDocumentSchemaException if the marker names a shape this build does not know.
+     */
+    private static PolicyVersionDocument recognisedVersion(PolicyVersionDocument version) {
+        if (version.schemaVersion != PolicyVersionDocument.SCHEMA_VERSION) {
+            throw new StoredDocumentSchemaException(
+                    PolicyVersionDocument.COLLECTION, version.id, SCHEMA_VERSION, version.schemaVersion);
+        }
+        return version;
+    }
+
+    /** @return the policy's newest version, through its guard, if it has any. */
+    private Optional<PolicyVersionDocument> latestVersion(String app, String policyId) {
+        return versionRepository.findByAppAndPolicyId(app, policyId, 0, 1).stream()
+                .findFirst()
+                .map(PolicyLifecycleStore::recognisedVersion);
+    }
+
     /** The composite-identity filter every single-policy write CASes against (ADR-026). */
     private static Bson identity(String app, String policyId) {
         return Filters.and(Filters.eq("app", app), Filters.eq("policyId", policyId));
     }
 
     /**
-     * A CAS that matched nothing is either a stale If-Match on an existing policy (412) or a policy
-     * that does not exist in this app (404).
+     * The condition of every write to an existing head: its identity, the caller's {@code If-Match}, and
+     * a shape this build knows (ADR-034 §8). The marker is part of the filter rather than a read before
+     * it, so the engine decides the condition and applies the update in one operation — there is no
+     * window in which the head could change shape between a check and the write.
+     *
+     * <p>Only the head's <em>own</em> marker is conditioned. No head write depends on the copied content
+     * it may hold: append does not touch it, and activation and deactivation replace or remove it whole.
+     *
+     * <p>"Known" is the marker as an integer, 32- or 64-bit, or absent (ADR-034 §3, §10) — see
+     * {@link StoredDocumentSchemaCondition} for why equality alone would admit values the read refuses.
+     *
+     * <p>A head this build does not know therefore fails the CAS like a stale revision, and
+     * {@link #staleOrMissing} re-reads it through {@link #recognisedOwnShape}, which refuses it: nothing is
+     * written, and no new outcome is needed to say so.
+     */
+    private static Bson writableHead(String app, String policyId, long ifMatch) {
+        return Filters.and(
+                identity(app, policyId),
+                Filters.eq("revision", ifMatch),
+                StoredDocumentSchemaCondition.writable(SCHEMA_VERSION, PolicyHeadDocument.SCHEMA_VERSION));
+    }
+
+    /**
+     * A CAS that matched nothing is either a stale If-Match on an existing policy (412), a policy that
+     * does not exist in this app (404), or a head whose shape this build does not know — which the
+     * re-read below refuses with {@link StoredDocumentSchemaException} before either could be decided.
+     *
+     * <p>The re-read exists only to report a revision, so it checks the head's <em>own</em> marker and not
+     * the marker of the content it does not return. A head this build can read in its own shape, holding
+     * content copied in a shape it cannot, still answers a stale {@code If-Match} with its revision — the
+     * one way a client of this build can learn it, and so reach the activation that replaces that content.
      */
     private ProblemException staleOrMissing(String app, String policyId) {
-        Optional<PolicyHead> existing = findHead(app, policyId);
+        Optional<PolicyHeadDocument> existing =
+                headRepository.findByAppAndPolicyId(app, policyId).map(PolicyLifecycleStore::recognisedOwnShape);
         if (existing.isPresent()) {
-            return new PreconditionFailedException(app, policyId, existing.get().revision());
+            return new PreconditionFailedException(app, policyId, existing.get().revision);
         }
         return new PolicyNotFoundException(app, policyId);
     }
