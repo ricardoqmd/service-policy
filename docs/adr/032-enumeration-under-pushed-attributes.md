@@ -13,13 +13,15 @@ validated token, and subject attributes are derived from that token's claims thr
 per-app mapping of ADR-029. That works while the attributes a policy needs live in the
 token.
 
-They no longer do. The consuming institution's multi-contract model puts the authorization
-role outside the identity provider: a person holds several concurrent contracts, the role
-is granted per `(contract, application, environment)`, and the active contract is a
-**choice made per session by the client**, not a fact about the subject. The decided
-channel is push — the application's backend resolves the attributes for the active
-contract and asserts them on the request, exactly as ADR-010 describes. `/evaluate` already
-accepts them: `EvaluationRequest.subjectAttributes` is that bag.
+They no longer do. A deployment shape this engine has to serve puts the authorization role
+outside the identity provider: a subject holds several concurrent authorization contexts —
+employments, organizations, tenants — the role is granted per
+`(context, application, environment)`, and the active context is a **choice made per session
+by the client**, not a fact about the subject. A token issued to the person cannot carry a
+role that depends on a choice made after it was issued. The channel is therefore push — the
+application's backend resolves the attributes for the active context and asserts them on the
+request, exactly as ADR-010 describes. `/evaluate` already accepts them:
+`EvaluationRequest.subjectAttributes` is that bag.
 
 `/permissions` cannot. It is a `GET` with, by its own decision, *"no body, no query
 parameters, no caller-supplied attributes."* So the two surfaces now resolve subject
@@ -144,9 +146,9 @@ memory and are not changed.
   divergence documented in the `GET`'s own OpenAPI description — that a `conditional: false`
   pair can still be denied at enforcement because the two paths resolve attributes
   differently — narrows to the case where a deployment deliberately mixes transports.
-- **The engine learns nothing about contracts.** `contractId` is an opaque attribute in a
-  bag. No tenancy dimension, no schema, no coupling to the consuming institution's model —
-  the same discipline ADR-005 and ADR-010 hold elsewhere.
+- **The engine learns nothing about contexts.** `contractId` is an opaque attribute in a
+  bag. No tenancy dimension, no schema, no coupling to any deployment's organizational model
+  — the same discipline ADR-005 and ADR-010 hold elsewhere.
 - **It is additive.** No existing caller changes. The `GET` keeps working for deployments
   whose attributes are in the token.
 
@@ -159,10 +161,11 @@ memory and are not changed.
   forbids them. It would also put a synchronous outbound call to the projection service on
   the hot path of every menu render, making the engine's availability depend on it.
 - **Put the role back in the token** (protocol mapper, token exchange, IdP attributes).
-  Rejected upstream, not here: the consuming institution's ADR-018 evaluated token, SPI,
-  group and IdP-attribute carriers and chose an application-level authorization context
-  deliberately. Re-litigating it from inside the PDP would also re-couple the engine to one
-  identity provider's extension model, against ADR-003.
+  Rejected, and not on this engine's authority: where the carrier of an authorization context
+  has been evaluated — token claims, identity-provider extensions, groups, directory
+  attributes — the recurring outcome is an application-level context, because the active one
+  is chosen after the token is issued. Deciding it from inside the PDP would also re-couple
+  the engine to one identity provider's extension model, against ADR-003.
 - **Query parameters on the existing `GET`.** Rejected: ADR-030 forbids caller-supplied
   attributes on that surface by decision, an attribute bag is not a query-string shape, and
   the values would land in every access log and proxy cache along the way.
