@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/ricardoqmd/service-policy/compare/v0.5.2...v0.5.3) (2026-09-16)
+
+
+### Documentation
+
+* **adr:** state whose token ADR-033 gates, and what a declaration proves ([#199](https://github.com/ricardoqmd/service-policy/issues/199)) ([aef50d9](https://github.com/ricardoqmd/service-policy/commit/aef50d9f9d8aea48299816c90017a7c2f666f7ef))
+
 ## [0.5.2](https://github.com/ricardoqmd/service-policy/compare/v0.5.1...v0.5.2) (2026-09-16)
 
 
