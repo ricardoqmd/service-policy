@@ -70,6 +70,17 @@ reimplement the read gate, which is the duplication this ADR exists to remove. `
 denied read is a normal outcome (ADR-017, ADR-018) and carries no detail that would let a
 caller enumerate applications it cannot see.
 
+**The merged, cross-application listing keeps working, scoped.** One read surface has no
+application in its route by design: the merged catalogue exists because an operator who
+supervises several applications needs a single, server-paginated view that N nested calls
+cannot give. It is **scoped to the applications the caller may read, determined before the
+query is issued** — not filtered after paging, which would make the reported total and the
+page boundaries untrue. The total counts what is visible, and that is the correct total: a
+merged view over applications the caller cannot see never meant anything. A caller whose scope
+is empty receives an empty page and `200`, never `403`, because a `403` would itself disclose
+that other applications exist. This needs no new concept: the scope is the same
+`subject.attr.apps` §1 already uses.
+
 ### 3. Subject attributes for control-plane decisions come from the validated token only
 
 Control-plane decisions resolve `subject.attr.*` through the per-app claim mapping of
@@ -83,13 +94,67 @@ that may assert its own attributes may grant itself the access being checked.
 > other clause and reads these attributes from the request has reintroduced the defect under
 > a new name.
 
-### 4. Writes carry the acting subject
+**Whose token, stated explicitly.** The subject of a control-plane decision is **the caller
+itself** — the administrative surface that presented the token. The gate answers *"may this
+caller administer this application?"*, not *"may the person operating this caller administer
+this application?"* Where a console fronts a person and presents its own credential, this
+engine authorizes the console; any finer distinction among that console's operators is that
+console's own concern and is invisible here.
 
-A write may declare the person on whose behalf it is performed, mirroring the delegation
-marker `:enumerate` already accepts for reads (ADR-032). The declaration is honoured only
-for callers a policy allows to delegate; it is rejected, not ignored, otherwise. The audit
-metadata of ADR-014 records the **declared subject** as the author and the calling
-credential alongside it, so both remain answerable.
+The boundary is deliberate, and it is what makes the clause implementable: **this engine can
+verify only what a signature attests.** It still buys the property §1 exists for — an
+additional administrative surface is confined to the applications its own credential carries,
+so adding one no longer makes it an administrator of every application's policies. What it
+does not buy is a per-operator gate inside a single surface; that remains where it already is.
+
+A deployment that wants the **person** to be the subject of the gate makes the person's token
+the one this engine validates (§4, last paragraph). No clause here changes; only whose
+signature is presented.
+
+### 4. On a write, the declared subject attributes; it does not authorize
+
+A write may declare the person on whose behalf it is performed. **That declaration confers no
+authority and is not gated:** any caller already authorized to perform the write may make it,
+and refusing it would change nothing about what the caller could do. The asymmetry with reads
+is the point. On a read, delegation grants a caller access to information about a **different**
+subject, so ADR-032 gates it behind a marker. On a write, the caller is authorized as itself
+under §1 either way; the declaration changes only **what the record says**.
+
+The audit metadata of ADR-014 therefore records three things, and always all three:
+
+1. the **declared subject** — who the caller says acted;
+2. the **calling credential** — the `sub` of the validated token, which the engine knows;
+3. the **provenance of (1)** — whether the acting identity was **verified** by this engine or
+   merely **declared** by the caller.
+
+Field (3) exists because **one token attests one identity**. This engine validates the signature
+it is given and sees exactly the subject that signature names; anything a caller says about a
+human standing behind it is an assertion, not an attestation. An audit that cannot distinguish
+the two is an audit that will eventually be believed about the wrong person. **Recording the
+distinction is what keeps the record honest**, and it is cheaper than pretending it does not
+exist.
+
+Note what this is *not*: it is not a consequence of the engine being agnostic. Being agnostic
+means this engine holds no organizational model — it does not mean it cannot establish who is
+calling, since validating a token is precisely that. Which identity reaches this engine is a
+property of what the caller presents, and therefore a deployment choice, not a limit of the
+design.
+
+**What a declared identity is worth, stated plainly.** A declared entry says *"this credential
+asserted that this person acted"*. That is enough to reconstruct what happened and to hold the
+asserting system accountable for its assertion. It is **not** strong non-repudiation: were the
+named person to deny the action, the only witness is the system that named them. A deployment
+that needs the stronger property makes the identity verified, by the means below.
+
+This is also why the declaration is not gated. A caller holding the credential can already
+exercise every authority that credential carries; permitting it to *name* an actor adds record,
+not power.
+
+A deployment that wants delegation to be *verified* rather than declared already has the means:
+have the intermediary present a token the identity provider issued for the person, or an
+exchanged token that names the acting party (RFC 8693). Then this engine validates a signature
+instead of trusting a field, (3) says so, and the subject of §3's gate becomes the person. No
+clause above changes; only whose signature this engine validates.
 
 ### 5. The global administrative marker is removed, with no compatibility switch
 
@@ -116,6 +181,20 @@ otherwise reopen the door. Losing the store is a reinstallation, and behaves as 
 
 The bootstrap claim value may remain configured afterwards. It grants nothing once the
 marker exists.
+
+**Where the control-plane policy set lives.** Policies are per application (ADR-026), and there
+is no global set; so the set that governs the control plane lives in **one reserved
+application**, whose identifier is configuration with a default. The application being decided
+about does not come from where the policy is stored — it travels as `resource.attr.app`, taken
+from the route. Separating *where the rule is kept* from *which application it decides about* is
+what prevents the bootstrap paradox: were the set kept per application, a newly created
+application would be born with no policy authorizing its administration, and nothing could ever
+administer it.
+
+The reserved identifier **cannot be created as an ordinary application**: the configuration
+endpoint refuses it. Reserving a name in a space that is otherwise free is a cost, and it is the
+smaller one: the alternative is a naming grammar this service does not have today and that would
+constrain identifiers already in use.
 
 ### 7. Reachability
 
@@ -197,4 +276,8 @@ clause above.
   every read.
 - Delegation on writes proves insufficient to attribute an action, for example where more
   than one hop separates the person from this service.
+- A deployment requires **strong non-repudiation** of control-plane writes, or requires the gate
+  of §3 to distinguish operators *within* one administrative surface. Either one is answered the
+  same way — the person's token becomes the one this engine validates — and neither requires a
+  different design, only a different credential at the last hop.
 
