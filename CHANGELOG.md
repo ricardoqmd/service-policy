@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.2](https://github.com/ricardoqmd/service-policy/compare/v0.5.1...v0.5.2) (2026-09-16)
+
+
+### Features
+
+* **persistence:** carry a schema marker on every stored document (ADR-034) ([#196](https://github.com/ricardoqmd/service-policy/issues/196)) ([e2990be](https://github.com/ricardoqmd/service-policy/commit/e2990be660cd942aedb8f1fa5f8651444da45e56))
+
+
+### Documentation
+
+* **adr:** record ADR-033 and ADR-034 ([#195](https://github.com/ricardoqmd/service-policy/issues/195)) ([6adbe1c](https://github.com/ricardoqmd/service-policy/commit/6adbe1ce8d511e40d95d7f8ed41663bc0cc561f7))
+
 ## [0.5.1](https://github.com/ricardoqmd/service-policy/compare/v0.5.0...v0.5.1) (2026-08-22)
 
 
