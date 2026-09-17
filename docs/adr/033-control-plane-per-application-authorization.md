@@ -83,8 +83,12 @@ that other applications exist. This needs no new concept: the scope is the same
 
 ### 3. Subject attributes for control-plane decisions come from the validated token only
 
-Control-plane decisions resolve `subject.attr.*` through the per-app claim mapping of
-ADR-029 — the path enumeration already uses — and **never** from the request body. The
+Control-plane decisions resolve `subject.attr.*` from the validated token, through a claim
+mapping of the same form as ADR-029's, and **never** from the request body. The mapping applied
+is the one stored in the configuration of the **reserved control-plane application** (§6), not
+the configuration of the application being decided about: that application may not have a
+configuration yet — creating one is itself a control-plane write — and the merged catalogue of
+§2 names no application at all. The
 caller-asserted channel of ADR-010 remains correct for the data plane, where the caller is a
 policy enforcement point asserting facts about a third party under its own accountability;
 it is **not** admissible where the caller is the subject of the decision, because a caller
@@ -195,6 +199,35 @@ The reserved identifier **cannot be created as an ordinary application**: the co
 endpoint refuses it. Reserving a name in a space that is otherwise free is a cost, and it is the
 smaller one: the alternative is a naming grammar this service does not have today and that would
 constrain identifiers already in use.
+
+**Where the control-plane claim mapping lives.** The mapping of §3 is **required deployment
+configuration until installation, and stored configuration after it**:
+
+- While no installation marker exists, the deployment must supply the claim path that carries
+  the caller's applications. **A service that is not installed and lacks that value does not
+  start**: seeding an empty mapping would exclude every caller from the first minute.
+- Installation seeds, idempotently, the reserved application's configuration with that mapping
+  and the baseline control-plane policy set. Seeding does not itself record the installation
+  marker; the first successful control-plane write does.
+- From then on **the stored configuration is the only source**. The deployment value is
+  ignored; if it differs from what is stored, the service reports the divergence at startup and
+  applies nothing. Two live sources for the rule that decides who administers would leave no
+  arbiter the day they disagree.
+- The stored mapping is **updated through the ordinary configuration endpoint**. That update is
+  a control-plane write about the reserved application and is authorized like any other, so the
+  authority to change who counts as an administrator is itself expressed as policy.
+- The reserved application's configuration **cannot be deleted**, just as it cannot be created
+  as an ordinary application.
+- **An update that would leave its own caller without the reserved application is refused at
+  write time**: the service resolves the proposed mapping against the caller's validated token
+  and rejects the write if the reserved application is not among the resulting `apps`. This does
+  not prevent excluding other callers; it guarantees that the identity making a change can
+  always undo it, so a mistaken mapping is repaired through the API rather than by
+  reinstallation.
+
+Deployment configuration alone was rejected because the rule of who administers would change
+only by redeploying, through a second mapping mechanism that never goes away. Stored
+configuration alone was rejected because a fresh store has nothing to seed it from.
 
 ### 7. Reachability
 
