@@ -162,3 +162,4 @@ emitted an obligation no enforcement point had agreed to fulfil would be trigger
 - Obligation attributes prove to need validation. Doing it here would require the engine to
   learn their schemas, so the alternative to weigh first is a per-application schema
   declared alongside the identifier.
+
