@@ -43,6 +43,7 @@ both are kept for the audit trail.
 | [032](032-enumeration-under-pushed-attributes.md)         | Permission enumeration under pushed subject attributes (`:enumerate`, cache/ETag keyed by attributes) | Accepted |
 | [033](033-control-plane-per-application-authorization.md) | Control-plane authorization expressed as policy; global admin marker removed (**breaking**)           | Accepted |
 | [034](034-stored-document-schema-marker.md)               | Stored documents carry an internal schema marker, distinct from any domain version                    | Accepted |
+| [035](035-obligations-and-the-enforcement-contract.md)    | Obligations: per-application vocabulary, checked at authoring; a PEP that cannot fulfil one refuses   | Accepted |
 
 ## Relationships
 
@@ -133,6 +134,17 @@ both are kept for the audit trail.
   person rather than the credential. The bootstrap problem — no policy can authorize writing
   the first policy — is closed by an installation mode that ends on the first control-plane
   write and is recorded by a one-way marker, never inferred from an empty store.
+- **ADR-035 completes ADR-008 without implementing it.** ADR-008 deferred obligations to
+  "the next increment" and the field has been on the wire, always empty, ever since. What
+  ADR-035 settles is the contract rather than the feature: an obligation is a condition on
+  a decision, not information about it, so an enforcement point that cannot fulfil one
+  refuses the action. The identifier vocabulary is declared **per application** in its
+  configuration (ADR-029) and checked when a policy is authored, which is the same shape
+  ADR-028 gave the action catalogue — a closed vocabulary owned by whoever implements it,
+  so the engine can check an identifier without learning what it means. Checking at
+  authoring rather than at evaluation is what keeps a misspelling a `400` on one screen
+  instead of a denial on every decision that policy governs. The evaluator still returns an
+  empty list; the rule is adopted while adopting it is free.
 - **ADR-034 is independent of ADR-033 and shipped alongside it.** Persisted documents said
   nothing about the shape they were written in: a policy version's `version` is the policy's,
   under ADR-016, not the document's, and `content` is opaque. The marker is additive and
