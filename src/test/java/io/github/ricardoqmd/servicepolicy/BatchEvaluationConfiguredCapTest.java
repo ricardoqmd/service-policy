@@ -57,9 +57,20 @@ class BatchEvaluationConfiguredCapTest {
                 .then()
                 .statusCode(400)
                 .contentType("application/problem+json")
-                .body("code", equalTo("BAD_REQUEST"))
+                .body("code", equalTo("BATCH_TOO_LARGE"))
                 // The configured 2, not the default 100: this is the assertion that proves the
                 // property is read.
-                .body("detail", equalTo("'requests' must contain between 1 and 2 items."));
+                .body("detail", equalTo("'requests' must contain between 1 and 2 items."))
+                .body("maxBatchSize", equalTo(2));
+    }
+
+    /**
+     * The other half of discoverability: the number a client reads before sending anything is the
+     * same one that refuses it. Asserted under the SMALL cap, because under the default both would
+     * read 100 whether or not either consulted configuration.
+     */
+    @Test
+    void theMetadataEndpointReportsTheConfiguredCap() {
+        given().when().get("/info").then().statusCode(200).body("evaluation.batchMaxSize", equalTo(2));
     }
 }

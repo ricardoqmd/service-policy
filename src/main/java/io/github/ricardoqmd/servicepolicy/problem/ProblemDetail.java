@@ -15,7 +15,8 @@ public record ProblemDetail(
         Long currentRevision,
         Integer requestedVersion,
         List<InvalidParam> invalidParams,
-        List<String> policyIds) {
+        List<String> policyIds,
+        Integer maxBatchSize) {
 
     public record InvalidParam(String field, String reason) {}
 }

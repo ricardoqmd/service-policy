@@ -23,7 +23,7 @@ public class ProblemException extends RuntimeException {
 
     public ProblemDetail toProblemDetail() {
         return new ProblemDetail(
-                typeUri(code), code, defaultTitle(code), status, getMessage(), null, null, null, null, null);
+                typeUri(code), code, defaultTitle(code), status, getMessage(), null, null, null, null, null, null);
     }
 
     protected static String typeUri(String code) {
@@ -46,6 +46,7 @@ public class ProblemException extends RuntimeException {
             case "APP_CONFIG_ALREADY_EXISTS" -> "Application configuration already exists";
             case "APP_CONFIG_NOT_FOUND" -> "Application configuration not found";
             case "INVALID_APP_CONFIG" -> "Invalid application configuration";
+            case "BATCH_TOO_LARGE" -> "Batch too large";
             default -> code;
         };
     }

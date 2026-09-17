@@ -2,7 +2,11 @@ package io.github.ricardoqmd.servicepolicy;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -51,9 +55,12 @@ class BatchEvaluationCapTest {
                 .then()
                 .statusCode(400)
                 .contentType("application/problem+json")
-                .body("code", equalTo("BAD_REQUEST"))
+                .body("code", equalTo("BATCH_TOO_LARGE"))
                 .body("status", equalTo(400))
-                .body("detail", equalTo("'requests' must contain between 1 and 100 items."));
+                .body("detail", equalTo("'requests' must contain between 1 and 100 items."))
+                // The cap travels as a number, not only inside the sentence: a client that must
+                // re-chunk reacts to this rather than parsing prose.
+                .body("maxBatchSize", equalTo(DEFAULT_CAP));
     }
 
     @Test
@@ -87,6 +94,59 @@ class BatchEvaluationCapTest {
                 .contentType("application/problem+json")
                 .body("code", equalTo("BAD_REQUEST"))
                 .body("detail", equalTo("'requests' must not be empty."));
+    }
+
+    /**
+     * The point of giving this rejection its own code: it is the only one on this surface a caller
+     * can recover from. An empty batch is a programming mistake — the same request never works. An
+     * oversized one is correct against a deployment with a larger cap, so a client that can tell the
+     * two apart re-chunks and succeeds instead of reporting a bug.
+     *
+     * <p>Asserted as a difference, because a shared code is exactly what makes them indistinguishable.
+     */
+    @Test
+    @TestSecurity(user = "test-user")
+    void theOversizedRejectionIsDistinguishableFromEveryOtherBadRequest() {
+        String oversized = given().contentType(ContentType.JSON)
+                .body(batchOf(DEFAULT_CAP + 1))
+                .when()
+                .post("/v1/apps/test-app/evaluate/batch")
+                .then()
+                .statusCode(400)
+                .extract()
+                .path("code");
+        String empty = given().contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "requests": []
+                        }
+                        """)
+                .when()
+                .post("/v1/apps/test-app/evaluate/batch")
+                .then()
+                .statusCode(400)
+                .extract()
+                .path("code");
+
+        assertNotEquals(empty, oversized);
+        assertEquals("BATCH_TOO_LARGE", oversized);
+    }
+
+    /** No other rejection on this surface carries the cap; it is not a field that leaked everywhere. */
+    @Test
+    @TestSecurity(user = "test-user")
+    void anUnrelatedRejectionDoesNotCarryTheCap() {
+        given().contentType(ContentType.JSON)
+                .body("""
+                        {
+                          "requests": []
+                        }
+                        """)
+                .when()
+                .post("/v1/apps/test-app/evaluate/batch")
+                .then()
+                .statusCode(400)
+                .body("$", not(hasKey("maxBatchSize")));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

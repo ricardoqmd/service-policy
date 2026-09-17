@@ -35,6 +35,7 @@ public class InvalidAppConfigException extends ProblemException {
                 null,
                 null,
                 invalidParams,
+                null,
                 null);
     }
 }
