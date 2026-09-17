@@ -62,6 +62,7 @@ public class PreconditionFailedException extends ProblemException {
                 currentRevision,
                 null,
                 null,
+                null,
                 null);
     }
 }

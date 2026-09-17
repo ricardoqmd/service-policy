@@ -32,6 +32,7 @@ body. Everything else below is problem+json.
 | [`APP_CONFIG_ALREADY_EXISTS`](#app-config-already-exists)           | 409  | The app already has a configuration document         |
 | [`APP_CONFIG_NOT_FOUND`](#app-config-not-found)                     | 404  | The app has no configuration document                |
 | [`INVALID_APP_CONFIG`](#invalid-app-config)                         | 400  | The configuration document failed validation         |
+| [`BATCH_TOO_LARGE`](#batch-too-large)                               | 400  | A batch carries more items than this deployment caps |
 
 ---
 
@@ -453,6 +454,44 @@ document is reported at once, so the whole thing can be fixed in one pass.
     { "field": "pip.url", "reason": "must contain the '{sub}' placeholder for the subject id" },
     { "field": "pip.timeoutMs", "reason": "must be between 1 and 10000" }
   ]
+}
+```
+
+---
+
+## Batch too large
+
+`BATCH_TOO_LARGE` · **400 Bad Request**
+
+**Meaning.** The `requests` list of a batch evaluation carries more items than this
+deployment accepts. The batch is rejected **whole** — never truncated, because a caller
+that believes it evaluated N decisions and received fewer is the worst possible contract
+for an authorization engine.
+
+**Why this is not `BAD_REQUEST`.** Every other input rejection on this surface is a
+programming mistake: the same request never works, wherever it is sent. This one is
+different. The cap is deployment configuration, so a batch of a hundred items is correct
+against one instance and refused by the next, and a caller that recognises this rejection
+can re-chunk and succeed. Sharing a code with the mistakes would make a recoverable
+condition indistinguishable from a bug.
+
+**Extension member.** `maxBatchSize` — the cap **this rejection applied**. Use it rather
+than a number read elsewhere: configuration can change between two requests, and a client
+that mixed the two could re-chunk to a size that is already stale.
+
+**Client should.** Split the batch into chunks of at most `maxBatchSize` and retry. The
+same value is also published, before any request is sent, as `evaluation.batchMaxSize` on
+`GET /info` — read it at startup to size batches correctly in the first place, and treat
+this error as the correction when it changes underneath.
+
+```json
+{
+  "type": "https://github.com/ricardoqmd/service-policy/blob/main/docs/ERRORS.md#batch-too-large",
+  "title": "Batch too large",
+  "status": 400,
+  "code": "BATCH_TOO_LARGE",
+  "detail": "'requests' must contain between 1 and 100 items.",
+  "maxBatchSize": 100
 }
 ```
 

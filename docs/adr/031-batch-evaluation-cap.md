@@ -31,12 +31,49 @@ Deployments with different traffic shapes may tune it; a value below 1 fails sta
 validation, like the authorization markers do (ADR-013) — a misconfigured engine refuses
 to boot rather than refusing all batches at runtime.
 
-### 3. Over-cap and empty batches are input-validation rejections — no new error code
+### 3. Over-cap and empty batches are rejected whole, and the two are distinguishable
 
-An absent or empty `requests`, or one exceeding the cap, is rejected whole with
-**400 `BAD_REQUEST`** (`'requests' must contain between 1 and {max} items.`), exactly as
-paging bounds are rejected. There is no partial processing: the batch surface already
-fails as a unit when any item is invalid, and a size violation follows the same rule.
+An absent or empty `requests`, or one exceeding the cap, is rejected whole. There is no
+partial processing: the batch surface already fails as a unit when any item is invalid,
+and a size violation follows the same rule.
+
+An absent or empty `requests` is **400 `BAD_REQUEST`**, as paging bounds are. A batch over
+the cap is **400 `BATCH_TOO_LARGE`**, carrying `maxBatchSize` as an extension member.
+
+> **This clause originally said "no new error code", and it was wrong.** The reasoning
+> then was that a second identifier for the same class of mistake fragments the error
+> contract for no client benefit. The premise has not survived contact with a consumer:
+> the two are **not** the same class of mistake. An empty batch is a programming error —
+> the identical request fails against every deployment, forever. An over-cap batch is a
+> correct request refused by *this* deployment's configuration, and it is the only
+> rejection on this surface a caller can recover from by itself.
+>
+> A client that cannot tell them apart has two options, and both are bad: parse the
+> `detail` sentence, or treat a recoverable condition as a bug. A caller that lowers its
+> chunk size on `BATCH_TOO_LARGE` succeeds on the retry; the same caller seeing
+> `BAD_REQUEST` cannot know whether retrying smaller would help or whether its request is
+> simply malformed.
+>
+> The coherence argument still holds and is what shapes the correction: the status stays
+> **400**, the surface's rejections remain problem+json with a stable `code`, and the
+> context travels as an extension member — the pattern `currentRevision` already
+> establishes for `PRECONDITION_FAILED`. What changes is one identifier, for the one
+> rejection whose cause is configuration rather than the caller.
+
+### 4. The cap is discoverable before a request is sent
+
+`GET /info` reports it as `evaluation.batchMaxSize`.
+
+The rejection above tells a caller the bound **after** it has already sent an oversized
+batch. That is the correction, not the contract: a client that can only learn the cap by
+violating it sizes its first batch by guessing, and a deployment that lowers the cap turns
+every batched listing of every consumer into an error until each one is reconfigured by
+hand. A number a caller must obey and cannot read is a number it will get wrong.
+
+The two are deliberately redundant and are not interchangeable. `/info` is read once, at
+startup, to size batches correctly from the beginning; the extension member is the cap
+that refused a specific request, which is what a client must re-chunk against when
+configuration has moved since it last read `/info`.
 
 ## Reasons
 
@@ -49,9 +86,15 @@ fails as a unit when any item is invalid, and a size violation follows the same 
 
 ## Alternatives considered
 
-- **413 Payload Too Large.** Rejected: the surface's input-bound rejections are 400 with
-  the existing code; introducing a second status for the same class of mistake fragments
-  the error contract (ADR-018) for no client benefit.
+- **413 Payload Too Large.** Rejected: the surface's input-bound rejections are 400, and
+  introducing a second *status* for the same class of mistake fragments the error contract
+  (ADR-018). Note that §3 now introduces a second *code* under that same status, which is a
+  narrower change: a client that switches on `code` gains the distinction it needs without a
+  second status to handle, and one that does not keeps reading a 400 problem+json exactly as
+  before.
+- **Keeping one code and putting the cap in `detail` only.** Rejected once a consumer
+  existed: it leaves the machine-readable answer inside prose, which means either a parser
+  over a human sentence or a client that cannot react at all.
 - **Silently truncate to the cap.** Rejected outright: a PEP that believes it evaluated
   N decisions but received 100 is the worst possible contract — silent partial answers
   in an authorization engine.
@@ -83,4 +126,8 @@ fails as a unit when any item is invalid, and a size violation follows the same 
   with 429 (the deferred option above).
 - Real batch traffic shows the default materially wrong in either direction → retune the
   default with evidence, not the mechanism.
+- More bounds become things a client must respect before calling → `/info` grows into a
+  capabilities document, and what belongs in it needs a rule rather than a case-by-case
+  answer. It is an unauthenticated endpoint, so that rule has to say what may never go
+  there.
 

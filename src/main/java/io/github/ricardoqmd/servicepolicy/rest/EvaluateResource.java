@@ -19,6 +19,7 @@ import io.github.ricardoqmd.servicepolicy.evaluation.BatchEvaluationResult;
 import io.github.ricardoqmd.servicepolicy.evaluation.Decision;
 import io.github.ricardoqmd.servicepolicy.evaluation.EvaluationRequest;
 import io.github.ricardoqmd.servicepolicy.evaluation.PolicyEvaluator;
+import io.github.ricardoqmd.servicepolicy.problem.BatchTooLargeException;
 import io.github.ricardoqmd.servicepolicy.problem.InvalidRequestException;
 import io.quarkus.security.Authenticated;
 
@@ -104,7 +105,7 @@ public class EvaluateResource {
         if (batchRequest.requests().size() > batchMaxSize) {
             // Rejected whole, never truncated: a PEP that believes it evaluated N decisions and
             // received fewer is the worst possible contract for an authorization engine (ADR-031).
-            throw new InvalidRequestException("'requests' must contain between 1 and " + batchMaxSize + " items.");
+            throw new BatchTooLargeException(batchMaxSize);
         }
         List<Decision> decisions = batchRequest.requests().stream()
                 .map(r -> evaluator.evaluate(app, authContext.resolveEffectiveSubject(r.subject()), r))

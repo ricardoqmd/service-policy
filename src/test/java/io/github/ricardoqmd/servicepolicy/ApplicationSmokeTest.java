@@ -34,7 +34,8 @@ class ApplicationSmokeTest {
                 .body("name", equalTo("Service Policy"))
                 .body("repository", equalTo("https://github.com/ricardoqmd/service-policy"))
                 .body("startedAt", notNullValue())
-                .body("uptime", notNullValue());
+                .body("uptime", notNullValue())
+                .body("evaluation.batchMaxSize", equalTo(100));
     }
 
     @Test

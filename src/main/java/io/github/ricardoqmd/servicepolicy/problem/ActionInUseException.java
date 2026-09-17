@@ -35,6 +35,7 @@ public class ActionInUseException extends ProblemException {
                 null,
                 null,
                 null,
-                policyIds);
+                policyIds,
+                null);
     }
 }

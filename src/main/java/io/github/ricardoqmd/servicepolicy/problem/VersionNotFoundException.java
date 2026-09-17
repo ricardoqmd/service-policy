@@ -26,6 +26,7 @@ public class VersionNotFoundException extends ProblemException {
                 null,
                 requestedVersion,
                 null,
+                null,
                 null);
     }
 }
