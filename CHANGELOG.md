@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.4](https://github.com/ricardoqmd/service-policy/compare/v0.5.3...v0.5.4) (2026-09-17)
+
+
+### Features
+
+* make the evaluation batch cap discoverable ([#204](https://github.com/ricardoqmd/service-policy/issues/204)) ([8544edf](https://github.com/ricardoqmd/service-policy/commit/8544edff04f31bea3f72c8fc73dd66a1ba48444f))
+
+
+### Documentation
+
+* **adr:** settle the obligation contract before the first obligation exists ([#202](https://github.com/ricardoqmd/service-policy/issues/202)) ([848f5d3](https://github.com/ricardoqmd/service-policy/commit/848f5d3a50f836fa3d8821248234f85091c09f6c))
+
 ## [0.5.3](https://github.com/ricardoqmd/service-policy/compare/v0.5.2...v0.5.3) (2026-09-16)
 
 
