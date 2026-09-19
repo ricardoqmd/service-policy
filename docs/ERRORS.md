@@ -33,6 +33,7 @@ body. Everything else below is problem+json.
 | [`APP_CONFIG_NOT_FOUND`](#app-config-not-found)                     | 404  | The app has no configuration document                |
 | [`INVALID_APP_CONFIG`](#invalid-app-config)                         | 400  | The configuration document failed validation         |
 | [`BATCH_TOO_LARGE`](#batch-too-large)                               | 400  | A batch carries more items than this deployment caps |
+| [`ACTION_RESOURCE_TYPE_MISMATCH`](#action-resource-type-mismatch)   | 400  | The action's prefix is not the resource's type       |
 
 ---
 
@@ -527,6 +528,59 @@ this error as the correction when it changes underneath.
   "code": "BATCH_TOO_LARGE",
   "detail": "'requests' must contain between 1 and 100 items.",
   "maxBatchSize": 100
+}
+```
+
+---
+
+## Action resource type mismatch
+
+`ACTION_RESOURCE_TYPE_MISMATCH` · **400 Bad Request**
+
+**Meaning.** The request names an action whose prefix is not the type of the resource it
+asks about (ADR-036). An action is `verb` or `type:verb`, split at the **first** colon: in
+`document:read` the prefix is `document` and the verb `read`, and in `a:b:c` the prefix is
+`a` and the verb `b:c`. When a prefix is present it must be `resource.type` exactly — no
+normalization, no case folding, no aliasing, so `Document:read` asked about a `document`
+disagrees. An action with no colon is the verb alone and never disagrees.
+
+The request is refused before anything is evaluated: policies are selected by the verb,
+so answering it would mean deciding a question about a resource type the request did not
+name.
+
+**Triggered by.** `POST /v1/apps/{app}/evaluate`, `POST /v1/apps/{app}/evaluate/batch`
+and the `request` of `POST /v1/apps/{app}/policies:simulate`, when the action carries a
+prefix and a verb that is not blank, and the prefix differs from `resource.type` by any
+character — whitespace and case included. In a batch, the first disagreeing item refuses
+the **whole** batch, and no item is evaluated. Two cases are not this error:
+
+- An action with a prefix and a blank verb (`document:`) is malformed, and is refused
+  with `BAD_REQUEST` whatever its prefix: that check runs first.
+- A batch item whose `resource.type` is absent or blank has nothing to compare the prefix
+  with. This rule does not refuse it; the item is evaluated and answered with a deny.
+  (Outside a batch, a blank `resource.type` is refused with `BAD_REQUEST` before this
+  rule is reached.)
+
+**Extension members.** `actionPrefix` — what precedes the first colon of the action;
+`resourceType` — the request's `resource.type`; and, on a batch only, `index` — the
+zero-based position of the offending item in `requests`. They disclose nothing: the
+caller sent all of them.
+
+**Client should.** Treat as a programming mistake in the caller: the same request never
+works. Most often the action was copied from a neighbouring resource type. Send the action
+that belongs to `resourceType` — or the bare verb, which names no type — and fix the item at
+`index` before resending a batch.
+
+```json
+{
+  "type": "https://github.com/ricardoqmd/service-policy/blob/main/docs/ERRORS.md#action-resource-type-mismatch",
+  "title": "Action does not match resource type",
+  "status": 400,
+  "code": "ACTION_RESOURCE_TYPE_MISMATCH",
+  "detail": "requests[1]: action prefix 'document' does not match resource.type 'payment'.",
+  "actionPrefix": "document",
+  "resourceType": "payment",
+  "index": 1
 }
 ```
 

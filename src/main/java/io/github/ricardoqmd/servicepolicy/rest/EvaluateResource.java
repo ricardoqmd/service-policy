@@ -62,7 +62,11 @@ public class EvaluateResource {
                     + " resolved from the validated Bearer JWT (ADR-013). An explicit 'subject' in the"
                     + " body enables delegated queries; 403 if the delegation marker is absent. Returns"
                     + " 401 if unauthenticated, 400 if 'action' or 'resource.type' is blank, or if the"
-                    + " body carries an 'app' field (it is determined by the path).")
+                    + " body carries an 'app' field (it is determined by the path). The action is 'verb' or"
+                    + " 'type:verb', split at the first colon: when it carries a prefix, the prefix must be"
+                    + " 'resource.type' exactly, or the request is refused before evaluation with 400"
+                    + " ACTION_RESOURCE_TYPE_MISMATCH (ADR-036). A blank verb after the colon is 400"
+                    + " BAD_REQUEST whatever the prefix: that check runs first.")
     public Response evaluate(@PathParam("app") String app, EvaluationRequest request) {
         if (request == null) {
             throw new InvalidRequestException("request body must not be empty.");
@@ -75,6 +79,7 @@ public class EvaluateResource {
                 || request.resource().type().isBlank()) {
             throw new InvalidRequestException("resource.type must not be blank.");
         }
+        ActionAgreement.check(request);
         String subject = authContext.resolveEffectiveSubject(request.subject());
         return Response.ok(evaluator.evaluate(app, subject, request)).build();
     }
@@ -89,7 +94,13 @@ public class EvaluateResource {
                     + " items (default 100, the same bound the API applies to collection page size);"
                     + " an empty batch or one over the cap is rejected whole with 400, with no partial"
                     + " processing (ADR-031). Per-item resource-validation errors are returned as deny"
-                    + " decisions (not HTTP 400). An 'app' field on any item fails the entire batch"
+                    + " decisions (not HTTP 400). Before any item is evaluated, every item that carries a"
+                    + " non-blank 'resource.type' is checked in order (ADR-036), and the first offending one"
+                    + " fails the entire batch: an action whose verb after the colon is blank with 400"
+                    + " BAD_REQUEST, whatever the prefix; an action whose prefix is not exactly that type"
+                    + " with 400 ACTION_RESOURCE_TYPE_MISMATCH, naming its index. An item whose"
+                    + " 'resource.type' is absent or blank is not checked by that rule, and is answered with"
+                    + " a deny. An 'app' field on any item fails the entire batch"
                     + " with 400 — the scope is the path's, and no item may claim its own. A delegation"
                     + " violation on any item fails the entire batch with 403. Requires a valid Bearer"
                     + " token.")
@@ -107,6 +118,9 @@ public class EvaluateResource {
             // received fewer is the worst possible contract for an authorization engine (ADR-031).
             throw new BatchTooLargeException(batchMaxSize);
         }
+        // Every item is checked before the first is evaluated: a disagreeing action refuses the whole
+        // batch, so no decision is computed that the caller will never receive (ADR-036 §5).
+        ActionAgreement.checkEach(batchRequest.requests());
         List<Decision> decisions = batchRequest.requests().stream()
                 .map(r -> evaluator.evaluate(app, authContext.resolveEffectiveSubject(r.subject()), r))
                 .toList();

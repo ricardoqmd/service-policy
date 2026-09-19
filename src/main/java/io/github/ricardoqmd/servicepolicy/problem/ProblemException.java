@@ -47,6 +47,7 @@ public class ProblemException extends RuntimeException {
             case "APP_CONFIG_NOT_FOUND" -> "Application configuration not found";
             case "INVALID_APP_CONFIG" -> "Invalid application configuration";
             case "BATCH_TOO_LARGE" -> "Batch too large";
+            case "ACTION_RESOURCE_TYPE_MISMATCH" -> "Action does not match resource type";
             default -> code;
         };
     }

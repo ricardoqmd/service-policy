@@ -77,7 +77,10 @@ Content-Type: application/json
 ### A) POST /v1/apps/{app}/evaluate  — single authorization request → Decision
 ### ============================================================================
 ### REQUEST BODY (EvaluationRequest) — NOTE: no `app` field.
-###   action            (required)  "resource:verb", e.g. "document:read"
+###   action            (required)  "type:verb" or a bare "verb", e.g. "document:read".
+###                                   Split at the FIRST colon ("a:b:c" → type "a", verb
+###                                   "b:c"). The prefix, when present, MUST be resource.type
+###                                   exactly (ADR-036) — see A9.
 ###   resource          (required)  { type (required), id, attributes: {…} }
 ###   context           (optional)  runtime attributes, e.g. {"emergency": true}
 ###   subjectAttributes (optional)  non-identity subject attrs, e.g. {"area": "A"}
@@ -86,6 +89,9 @@ Content-Type: application/json
 ### RESPONSE (Decision), HTTP 200 for a valid request:
 ###   { allowed, reason, decisionId, policyVersion, obligations: [] }
 ### 400 if action or resource.type is blank, or if `app` is present in the body.
+### 400 ACTION_RESOURCE_TYPE_MISMATCH if the action's prefix is not resource.type (A9);
+### 400 BAD_REQUEST if the verb after the colon is blank ("document:"), whatever the
+### prefix — that check runs first.
 ### Never 500 on operand type (ADR-023).
 
 ### A1) PERMIT — subject is an assignee
@@ -210,6 +216,27 @@ Content-Type: application/json
 ### EXPECTED  200 OK  →  allowed: false   (incomparable operand → condition false)
 
 
+### A9) 400 — the action's prefix is not the resource's type (ADR-036)
+### The action names "document", the resource is a "payment". Policies are selected by
+### the verb, so answering would decide "payment:read" — a question nobody asked. The
+### request is refused before anything is evaluated. Equality is literal: "Payment:read"
+### on a "payment" is refused too, and so is " payment:read". A bare verb ("read") names
+### no type, so this rule never refuses it; "payment:read" is the agreeing form.
+POST {{host}}/v1/apps/rh/evaluate
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "action": "document:read",
+  "resource": { "type": "payment", "id": "p1" }
+}
+
+### EXPECTED  400  code: "ACTION_RESOURCE_TYPE_MISMATCH"
+###   detail:       "action prefix 'document' does not match resource.type 'payment'."
+###   actionPrefix: "document"
+###   resourceType: "payment"
+
+
 ### ============================================================================
 ### B) POST /v1/apps/{app}/evaluate/batch  — batch → { decisions: [Decision, …] }
 ### ============================================================================
@@ -221,6 +248,10 @@ Content-Type: application/json
 ###   ⚠️ Between 1 and `service-policy.evaluation.batch-max-size` items (default 100),
 ###      else 400 for the WHOLE batch — never truncated (ADR-031). See B3.
 ###   A delegation violation on ANY item fails the whole batch with 403.
+###   ⚠️ An item whose action prefix is not its resource.type → 400
+###      ACTION_RESOURCE_TYPE_MISMATCH for the WHOLE batch, naming the `index` of the
+###      first such item, before any item is evaluated (ADR-036). See B4. An item whose
+###      resource.type is absent or blank is not checked by this rule: it gets a deny.
 
 ### B1) Batch — three decisions at once, all in app "rh"
 POST {{host}}/v1/apps/rh/evaluate/batch
@@ -299,6 +330,26 @@ Content-Type: application/json
 ### "'requests' must not be empty."
 
 
+### B4) 400 — one item's action disagrees with its resource type (ADR-036)
+POST {{host}}/v1/apps/rh/evaluate/batch
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "requests": [
+    { "action": "document:read",
+      "resource": { "type": "document", "id": "d1" } },
+    { "action": "document:read",
+      "resource": { "type": "payment", "id": "p1" } }
+  ]
+}
+
+### EXPECTED  400  code: "ACTION_RESOURCE_TYPE_MISMATCH"
+###   detail: "requests[1]: action prefix 'document' does not match resource.type 'payment'."
+###   actionPrefix: "document", resourceType: "payment", index: 1
+### The whole batch fails and NO item is evaluated — not even requests[0].
+
+
 ### ============================================================================
 ### C) GET /v1/apps/{app}/permissions  — permission ENUMERATION (ADR-030)
 ### ============================================================================
@@ -351,6 +402,8 @@ GET {{host}}/v1/apps/rh/permissions
 ### ----------------------------------------------------------------------------
 ### EvaluationRequest { action*, resource*, context?, subjectAttributes?, subject? }
 ###                     (* = required.  NO `app` — it comes from the path, ADR-026)
+###                     action = "verb" | "type:verb", split at the first colon; the
+###                     prefix, when present, must equal resource.type (ADR-036)
 ### ResourceRef       { type*, id?, attributes?: {…} }
 ### Decision          { allowed, reason, decisionId, policyVersion, obligations: [Obligation] }
 ### BatchEvaluationRequest { requests: [EvaluationRequest] }   ← all share the path's app

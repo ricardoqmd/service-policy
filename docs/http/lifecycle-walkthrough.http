@@ -511,6 +511,24 @@ Content-Type: application/json
 ### (Same for EVERY item of /evaluate/batch — one offending item fails the whole batch.)
 
 
+### 25b) 400 ACTION_RESOURCE_TYPE_MISMATCH — the action names another resource type
+### The prefix of "type:verb", when present, must be resource.type exactly (ADR-036);
+### otherwise the engine would answer for a type the request did not name. Same on
+### every batch item that carries a resource.type (the whole batch fails, naming the
+### index) and on :simulate. A blank verb ("document:") is 400 BAD_REQUEST instead.
+POST {{host}}/v1/apps/rh/evaluate
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "action": "document:read",
+  "resource": {"type": "payment", "id": "p1"}
+}
+
+### EXPECTED  400  code: "ACTION_RESOURCE_TYPE_MISMATCH"
+###   actionPrefix: "document", resourceType: "payment"
+
+
 ### 26) 409 POLICY_ALREADY_EXISTS — duplicate id WITHIN the same app
 POST {{host}}/v1/apps/rh/policies
 Authorization: {{auth_console}}
