@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.0](https://github.com/ricardoqmd/service-policy/compare/v0.5.4...v0.6.0) (2026-09-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **control-plane:** the administrative marker is removed. service-policy.authz.admin.{mode,role,scope} no longer exists: a caller holding the authz-admin role or scope is no longer authorized for any control-plane endpoint, and the property set in a configuration file or as a system property makes startup fail (SRCFG00050); set as an environment variable it is ignored. Control-plane callers are authorized per application from a claim in their token, and a deployment that is not installed must configure both that claim and the bootstrap value before it can start. Migration: (1) make each administrative credential carry the applications it administers in a claim, and set SERVICE_POLICY_CONTROL_PLANE_SUBJECT_ATTRIBUTES_APPS to its path, including the reserved application for credentials that administer the control plane itself; (2) set SERVICE_POLICY_CONTROL_PLANE_BOOTSTRAP_VALUE to the sub of the installing credential; (3) stop every instance of the previous version, then deploy this one — not as a rolling update, nor blue/green with the previous version live: it honours the removed marker and ignores the gate, so an instance of it left running could replace the policy set this one seeds. Startup seeds the control-plane policy set, and from here until step 4 every console is refused (the merged catalogue answers 200 with an empty page, which is not data loss), because installation mode accepts the bootstrap credential and no one else; (4) perform one successful control-plane write with the bootstrap credential, which closes installation. It is an ordinary control-plane write and not every attempt closes: a PUT of the reserved configuration by a bootstrap credential that does not itself carry the reserved application is refused by the self-lockout guard and leaves installation open, so close with a write made by a credential that already carries the reserved application, which proves the mapping against a real token before the close becomes irreversible; (5) deploy the updated console. A store whose reserved application was already written by the previous version refuses to start at step 3 and names what is there: list it with the previous version still running; if it holds a policy, set SERVICE_POLICY_CONTROL_PLANE_RESERVED_APP to an application that does not exist yet; if it holds only a configuration and catalogue entries, either do that or delete them with the previous version; then upgrade. The reserved application cannot be changed by configuration afterwards: the marker records it, a deployment started with a different one refuses to start, and one already running denies every control-plane call. Audit entries now carry subject and subjectProvenance; createdBy keeps its meaning.
+
+### Features
+
+* **control-plane:** authorize the control plane per application by policy (ADR-033) ([#208](https://github.com/ricardoqmd/service-policy/issues/208)) ([65a80d2](https://github.com/ricardoqmd/service-policy/commit/65a80d20627b654f14f13115da6a237e79401bdc))
+
+
+### Documentation
+
+* **adr:** state where the control-plane claim mapping lives ([#206](https://github.com/ricardoqmd/service-policy/issues/206)) ([426d3cb](https://github.com/ricardoqmd/service-policy/commit/426d3cb25aa052fabe2b20b347f9dfe76dd1bdf5))
+
 ## [0.5.4](https://github.com/ricardoqmd/service-policy/compare/v0.5.3...v0.5.4) (2026-09-17)
 
 
