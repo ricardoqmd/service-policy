@@ -13,11 +13,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import io.github.ricardoqmd.servicepolicy.ActionCatalogueTestSupport;
+import io.github.ricardoqmd.servicepolicy.ControlPlaneTestSupport;
 import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.http.ContentType;
 
 /**
@@ -33,12 +37,12 @@ import io.restassured.http.ContentType;
  * against exactly the state an administrator produces.
  */
 @QuarkusTest
-@TestSecurity(
-        user = "admin-user",
-        roles = {PolicyListStatusFilterTest.ADMIN})
+@TestSecurity(user = "admin-user")
+@OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
 class PolicyListStatusFilterTest {
 
-    static final String ADMIN = "authz-admin";
+    @Inject
+    ControlPlaneTestSupport controlPlane;
 
     private static final String CATALOGUE = "/v1/policies";
 
@@ -63,6 +67,7 @@ class PolicyListStatusFilterTest {
         clean();
         ActionCatalogueTestSupport.declare(catalogueRepository, "app-a", "document", "read");
         ActionCatalogueTestSupport.declare(catalogueRepository, "app-b", "document", "read");
+        controlPlane.installed();
     }
 
     @AfterEach

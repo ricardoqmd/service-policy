@@ -26,8 +26,8 @@ import io.github.ricardoqmd.servicepolicy.persistence.AppConfigProvider;
  * of the validated token by walking the claim path. It hardcodes no provider's structure and invents
  * no attribute names — both the attribute names and the claim paths come from configuration — so
  * ADR-010 stands: the engine still does not make up subject attributes, it reads the ones an operator
- * declared, exactly as ADR-013 already reads the admin marker from a configured claim, widened from
- * one claim to several.
+ * declared, exactly as ADR-013 reads its markers from a configured claim, widened from one claim to
+ * several.
  *
  * <p>Degradation is silent and honest (ADR-030 §Consequences): an app with no configuration, or a
  * configuration with no {@code subjectAttributes} section, derives an empty map. Fewer resolvable
@@ -70,8 +70,20 @@ public class SubjectAttributeDeriver {
      *     of scalars are omitted.
      */
     public Map<String, Object> derive(String app, JsonWebToken token) {
-        Map<String, String> mapping =
-                configProvider.forApp(app).map(AppConfig::subjectAttributes).orElse(null);
+        return resolve(
+                configProvider.forApp(app).map(AppConfig::subjectAttributes).orElse(null), token);
+    }
+
+    /**
+     * Applies a given mapping to a token, by the same rules as {@link #derive}. This is how a mapping kept
+     * somewhere other than the application being decided about is applied (ADR-033 §3), and how a mapping
+     * that is not stored yet — a proposed one — is resolved against a caller's own token (ADR-033 §6).
+     *
+     * @param mapping attribute name → claim path; {@code null} or empty derives nothing.
+     * @param token   the validated token, or {@code null} when there is none.
+     * @return attribute name → derived value, omitting what does not resolve.
+     */
+    public Map<String, Object> resolve(Map<String, String> mapping, JsonWebToken token) {
         if (mapping == null || mapping.isEmpty() || token == null) {
             return Map.of();
         }

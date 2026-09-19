@@ -11,48 +11,37 @@ import org.junit.jupiter.api.Test;
 /**
  * Unit tests for the fail-fast startup validation in {@link AuthzConfigValidator} (ADR-013 §3).
  * Exercises the validator directly with stub configs — no Quarkus container needed.
+ *
+ * <p>Only the delegation marker is validated: the administrative marker no longer exists (ADR-033 §5).
  */
 class AuthzConfigValidatorTest {
 
     @Test
     void validatorPassesWithDefaultRoleConfig() {
-        AuthzConfigValidator v = new AuthzConfigValidator(config(
-                marker(ServicePolicyConfig.Mode.ROLE, Optional.of("authz-admin"), Optional.empty()),
-                marker(ServicePolicyConfig.Mode.ROLE, Optional.of("pdp-client"), Optional.empty())));
+        AuthzConfigValidator v = new AuthzConfigValidator(
+                config(marker(ServicePolicyConfig.Mode.ROLE, Optional.of("pdp-client"), Optional.empty())));
         assertDoesNotThrow(() -> v.onStart(null));
     }
 
     @Test
     void validatorPassesWithScopeModeWhenScopeIsSet() {
-        AuthzConfigValidator v = new AuthzConfigValidator(config(
-                marker(ServicePolicyConfig.Mode.SCOPE, Optional.empty(), Optional.of("authz-scope")),
-                marker(ServicePolicyConfig.Mode.ROLE, Optional.of("pdp-client"), Optional.empty())));
+        AuthzConfigValidator v = new AuthzConfigValidator(
+                config(marker(ServicePolicyConfig.Mode.SCOPE, Optional.empty(), Optional.of("pdp-scope"))));
         assertDoesNotThrow(() -> v.onStart(null));
     }
 
     @Test
-    void validatorThrowsWhenAdminModeIsRoleButRoleIsAbsent() {
-        AuthzConfigValidator v = new AuthzConfigValidator(config(
-                marker(ServicePolicyConfig.Mode.ROLE, Optional.empty(), Optional.empty()),
-                marker(ServicePolicyConfig.Mode.ROLE, Optional.of("pdp-client"), Optional.empty())));
+    void validatorThrowsWhenDelegationModeIsRoleButRoleIsAbsent() {
+        AuthzConfigValidator v = new AuthzConfigValidator(
+                config(marker(ServicePolicyConfig.Mode.ROLE, Optional.empty(), Optional.empty())));
         IllegalStateException ex = assertThrows(IllegalStateException.class, () -> v.onStart(null));
-        assertTrue(ex.getMessage().contains("service-policy.authz.admin.role"));
-    }
-
-    @Test
-    void validatorThrowsWhenAdminModeIsScopeButScopeIsAbsent() {
-        AuthzConfigValidator v = new AuthzConfigValidator(config(
-                marker(ServicePolicyConfig.Mode.SCOPE, Optional.empty(), Optional.empty()),
-                marker(ServicePolicyConfig.Mode.ROLE, Optional.of("pdp-client"), Optional.empty())));
-        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> v.onStart(null));
-        assertTrue(ex.getMessage().contains("service-policy.authz.admin.scope"));
+        assertTrue(ex.getMessage().contains("service-policy.authz.delegation.role"));
     }
 
     @Test
     void validatorThrowsWhenDelegationModeIsScopeButScopeIsAbsent() {
-        AuthzConfigValidator v = new AuthzConfigValidator(config(
-                marker(ServicePolicyConfig.Mode.ROLE, Optional.of("authz-admin"), Optional.empty()),
-                marker(ServicePolicyConfig.Mode.SCOPE, Optional.empty(), Optional.empty())));
+        AuthzConfigValidator v = new AuthzConfigValidator(
+                config(marker(ServicePolicyConfig.Mode.SCOPE, Optional.empty(), Optional.empty())));
         IllegalStateException ex = assertThrows(IllegalStateException.class, () -> v.onStart(null));
         assertTrue(ex.getMessage().contains("service-policy.authz.delegation.scope"));
     }
@@ -79,7 +68,7 @@ class AuthzConfigValidatorTest {
         };
     }
 
-    private static ServicePolicyConfig config(ServicePolicyConfig.Marker admin, ServicePolicyConfig.Marker delegation) {
+    private static ServicePolicyConfig config(ServicePolicyConfig.Marker delegation) {
         return new ServicePolicyConfig() {
             @Override
             public Info info() {
@@ -92,18 +81,13 @@ class AuthzConfigValidatorTest {
             }
 
             @Override
-            public Authz authz() {
-                return new Authz() {
-                    @Override
-                    public ServicePolicyConfig.Marker admin() {
-                        return admin;
-                    }
+            public ControlPlane controlPlane() {
+                return null;
+            }
 
-                    @Override
-                    public ServicePolicyConfig.Marker delegation() {
-                        return delegation;
-                    }
-                };
+            @Override
+            public Authz authz() {
+                return () -> delegation;
             }
         };
     }

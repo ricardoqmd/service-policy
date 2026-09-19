@@ -21,11 +21,15 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
 import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
+import io.github.ricardoqmd.servicepolicy.persistence.AuditActor;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.RestAssured;
 import io.restassured.http.ContentType;
 
@@ -46,8 +50,10 @@ import io.restassured.http.ContentType;
 @QuarkusTest
 class SimulationResourceTest {
 
+    @Inject
+    ControlPlaneTestSupport controlPlane;
+
     private static final String APP = "test-app";
-    private static final String ADMIN = "authz-admin";
     private static final String SIMULATE = "/v1/apps/{app}/policies:simulate";
 
     @Inject
@@ -71,6 +77,7 @@ class SimulationResourceTest {
         // ADR-028: simulate validates the candidate exactly as create does, so the drafts below —
         // all ["*"] on 'document' — need the app's vocabulary declared just like a real create would.
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
+        controlPlane.installed();
     }
 
     @AfterEach
@@ -88,9 +95,8 @@ class SimulationResourceTest {
      * permit it — proving the engine evaluated the document from the body, not a stored head.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void simulateDraftThatPermitsIsAllowedWithNoActivePolicy() {
         given().contentType(ContentType.JSON)
                 .body(simulateBody(permitDraft(), requestWithAssignee("admin-user")))
@@ -103,15 +109,14 @@ class SimulationResourceTest {
                 .body("decisionId", notNullValue());
 
         // and nothing was created by the simulation.
-        assertEquals(0, headRepository.count());
-        assertEquals(0, versionRepository.count());
+        assertEquals(0, headRepository.count("app", APP));
+        assertEquals(0, versionRepository.count("app", APP));
     }
 
     /** A draft that DENIES (subject is not an assignee → default deny) returns allowed=false. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void simulateDraftThatDeniesIsNotAllowed() {
         given().contentType(ContentType.JSON)
                 .body(simulateBody(permitDraft(), requestWithAssignee("someone-else")))
@@ -131,17 +136,16 @@ class SimulationResourceTest {
      * after the simulation is identical (404 → 404).
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void simulationHasZeroEffectOnTheStore() {
         // Before: the ghost policy does not exist and the store is empty.
         given().when()
                 .get("/v1/apps/{app}/policies/{id}", APP, "draft-policy")
                 .then()
                 .statusCode(404);
-        assertEquals(0, headRepository.count());
-        assertEquals(0, versionRepository.count());
+        assertEquals(0, headRepository.count("app", APP));
+        assertEquals(0, versionRepository.count("app", APP));
 
         // Simulate a permitting draft — it decides, but must persist nothing.
         given().contentType(ContentType.JSON)
@@ -157,8 +161,8 @@ class SimulationResourceTest {
                 .get("/v1/apps/{app}/policies/{id}", APP, "draft-policy")
                 .then()
                 .statusCode(404);
-        assertEquals(0, headRepository.count());
-        assertEquals(0, versionRepository.count());
+        assertEquals(0, headRepository.count("app", APP));
+        assertEquals(0, versionRepository.count("app", APP));
     }
 
     /**
@@ -166,12 +170,11 @@ class SimulationResourceTest {
      * and active pointer are unchanged by a simulation against a different draft.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void simulationDoesNotDisturbAnExistingActivePolicy() {
-        lifecycleStore.create(APP, docAccessPolicy(), "seed", "seed");
-        lifecycleStore.activate(APP, "doc-access", 1, 0L, "seed", "seed");
+        lifecycleStore.create(APP, docAccessPolicy(), AuditActor.verified("seed"), "seed");
+        lifecycleStore.activate(APP, "doc-access", 1, 0L, AuditActor.verified("seed"), "seed");
 
         String etagBefore = given().when()
                 .get("/v1/apps/{app}/policies/{id}", APP, "doc-access")
@@ -207,9 +210,8 @@ class SimulationResourceTest {
      * document that could not have been created.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void simulateMalformedDocumentReturns400InvalidPolicy() {
         String badPolicy = """
                 {
@@ -233,9 +235,8 @@ class SimulationResourceTest {
 
     /** app in the policy document → 400 INVALID_POLICY (same treatment as create, ADR-026). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void policyDocumentCarryingAppReturns400InvalidPolicy() {
         String policyWithApp = """
                 {
@@ -256,9 +257,8 @@ class SimulationResourceTest {
 
     /** app in the evaluation request → 400 BAD_REQUEST (same treatment as evaluate, ADR-026). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void requestCarryingAppReturns400BadRequest() {
         String body = """
                 {
@@ -279,7 +279,7 @@ class SimulationResourceTest {
                 .body("code", equalTo("BAD_REQUEST"));
     }
 
-    // ── Admin gate ───────────────────────────────────────────────────────────
+    // ── Control-plane gate (ADR-033) ───────────────────────────────────────────────────────────
 
     @Test
     void simulateWithoutAuthenticationReturns401() {
@@ -293,7 +293,7 @@ class SimulationResourceTest {
 
     @Test
     @TestSecurity(user = "plain-user")
-    void simulateWithoutAdminMarkerReturns403() {
+    void simulateWithoutAuthorizationForTheAppReturns403() {
         given().contentType(ContentType.JSON)
                 .body(simulateBody(permitDraft(), requestWithAssignee("plain-user")))
                 .when()
@@ -311,13 +311,12 @@ class SimulationResourceTest {
      * app's active doc-access policy would have permitted the same request.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void simulationDoesNotMixInTheAppsActivePolicies() {
         // Seed an ACTIVE policy that permits admin-user (an assignee) for the same request.
-        lifecycleStore.create(APP, docAccessPolicy(), "seed", "seed");
-        lifecycleStore.activate(APP, "doc-access", 1, 0L, "seed", "seed");
+        lifecycleStore.create(APP, docAccessPolicy(), AuditActor.verified("seed"), "seed");
+        lifecycleStore.activate(APP, "doc-access", 1, 0L, AuditActor.verified("seed"), "seed");
 
         // Simulate a DIFFERENT draft that denies (default deny, no matching rule) the same request.
         String denyDraft = """
@@ -342,9 +341,8 @@ class SimulationResourceTest {
 
     /** The response is a Decision identical in shape to /evaluate, so the PAP reuses its render. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void responseIsADecisionInTheSameShapeAsEvaluate() {
         given().contentType(ContentType.JSON)
                 .body(simulateBody(permitDraft(), requestWithAssignee("admin-user")))
@@ -363,9 +361,8 @@ class SimulationResourceTest {
 
     /** A whole-body {@code null} → the 'policy' guard rejects it (body == null branch). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void nullBodyReturns400BadRequest() {
         given().contentType(ContentType.JSON)
                 .body("null")
@@ -378,9 +375,8 @@ class SimulationResourceTest {
 
     /** No 'policy' field → the 'policy' guard rejects it (policy == null branch). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void missingPolicyReturns400BadRequest() {
         given().contentType(ContentType.JSON)
                 .body("{\"request\": %s}".formatted(requestWithAssignee("admin-user")))
@@ -393,9 +389,8 @@ class SimulationResourceTest {
 
     /** An empty 'policy' object → the 'policy' guard rejects it (policy.isEmpty() branch). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void emptyPolicyReturns400BadRequest() {
         given().contentType(ContentType.JSON)
                 .body("{\"policy\": {}, \"request\": %s}".formatted(requestWithAssignee("admin-user")))
@@ -408,9 +403,8 @@ class SimulationResourceTest {
 
     /** No 'request' field → the 'request' guard rejects it (request == null branch). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void missingRequestReturns400BadRequest() {
         given().contentType(ContentType.JSON)
                 .body("{\"policy\": %s}".formatted(permitDraft()))
@@ -423,9 +417,8 @@ class SimulationResourceTest {
 
     /** No 'action' in the request → the 'action' guard rejects it (action == null branch). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void missingActionReturns400BadRequest() {
         given().contentType(ContentType.JSON)
                 .body(simulateBody(permitDraft(), "{\"resource\": {\"type\": \"document\", \"id\": \"d1\"}}"))
@@ -438,9 +431,8 @@ class SimulationResourceTest {
 
     /** A blank 'action' → the 'action' guard rejects it (action.isBlank() branch). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void blankActionReturns400BadRequest() {
         given().contentType(ContentType.JSON)
                 .body(simulateBody(
@@ -454,9 +446,8 @@ class SimulationResourceTest {
 
     /** No 'resource' in the request → the 'resource' guard rejects it (resource == null branch). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void missingResourceReturns400BadRequest() {
         given().contentType(ContentType.JSON)
                 .body(simulateBody(permitDraft(), "{\"action\": \"document:read\"}"))
@@ -469,9 +460,8 @@ class SimulationResourceTest {
 
     /** A resource with no 'type' → the 'resource' guard rejects it (resource.type() == null branch). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void missingResourceTypeReturns400BadRequest() {
         given().contentType(ContentType.JSON)
                 .body(simulateBody(permitDraft(), "{\"action\": \"document:read\", \"resource\": {\"id\": \"d1\"}}"))
@@ -484,9 +474,8 @@ class SimulationResourceTest {
 
     /** A blank resource 'type' → the 'resource' guard rejects it (resource.type().isBlank() branch). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void blankResourceTypeReturns400BadRequest() {
         given().contentType(ContentType.JSON)
                 .body(simulateBody(
@@ -500,6 +489,47 @@ class SimulationResourceTest {
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * The delegation rule of ADR-013 §5 reaches this endpoint too: a simulated {@code request} whose
+     * {@code subject} is not the caller needs the delegation marker. Its refusal is its own {@code 403},
+     * after the control-plane gate has already permitted the read — which is why {@code docs/ERRORS.md}
+     * lists {@code :simulate} beside {@code /evaluate} and {@code :enumerate}.
+     */
+    @Test
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
+    void simulatingForAnotherSubjectWithoutTheDelegationMarkerIsRefused() {
+        given().contentType(ContentType.JSON)
+                .body(simulateBody(
+                        permitDraft(),
+                        "{\"action\": \"document:read\", \"resource\": {\"type\": \"document\","
+                                + " \"id\": \"d1\"}, \"subject\": \"someone-else\"}"))
+                .when()
+                .post(SIMULATE, APP)
+                .then()
+                .statusCode(403)
+                .body("code", equalTo("FORBIDDEN"))
+                .body("detail", equalTo("delegation marker required to query a different subject"));
+    }
+
+    /** The positive control: the same simulation for the caller itself is permitted. */
+    @Test
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
+    void simulatingForTheCallerItselfNeedsNoDelegationMarker() {
+        given().contentType(ContentType.JSON)
+                .body(simulateBody(
+                        permitDraft(),
+                        "{\"action\": \"document:read\", \"resource\": {\"type\": \"document\","
+                                + " \"id\": \"d1\", \"attributes\": {\"assignees\": [\"admin-user\"]}},"
+                                + " \"subject\": \"admin-user\"}"))
+                .when()
+                .post(SIMULATE, APP)
+                .then()
+                .statusCode(200)
+                .body("allowed", equalTo(true));
+    }
 
     private static String simulateBody(String policyJson, String requestJson) {
         return """

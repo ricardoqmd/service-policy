@@ -133,18 +133,13 @@ class AuthContextTest {
             }
 
             @Override
-            public Authz authz() {
-                return new Authz() {
-                    @Override
-                    public ServicePolicyConfig.Marker admin() {
-                        return del;
-                    }
+            public ControlPlane controlPlane() {
+                return null;
+            }
 
-                    @Override
-                    public ServicePolicyConfig.Marker delegation() {
-                        return del;
-                    }
-                };
+            @Override
+            public Authz authz() {
+                return () -> del;
             }
         };
     }

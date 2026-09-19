@@ -10,5 +10,7 @@ import java.util.List;
  * field is rejected rather than ignored (ADR-026).
  *
  * @param actions the complete new action set; same validation as on create.
+ * @param subject optional declaration of on whose behalf the write is made (ADR-033 §4). It confers no
+ *     authority; it changes only what the audit records.
  */
-public record CatalogueEntryReplace(List<String> actions) {}
+public record CatalogueEntryReplace(List<String> actions, String subject) {}

@@ -63,6 +63,16 @@ time-bounded grant — is **an additional policy**, authored through the same AP
 other policy. The engine does not learn what an "owner" or an "administrator" is; it
 evaluates one more policy over a resource type that happens to be called `policy`.
 
+**What "an additional policy" can and cannot do today, measured.** A policy that matches no
+rule contributes its default effect, and a `DENY` from any policy overrides the rest, so as the
+engine stands an additional policy can **narrow** access (default `PERMIT`, one `DENY` rule) but
+cannot **widen** it: an added rule that permits one operator leaves the baseline contributing
+`DENY` for that request, and — worse — an added policy whose default is `DENY` withdraws the
+action from every caller it does not name. Widening therefore means revising the policy that
+governs that action, not adding one beside it. This is a limit of the engine's combining, not of
+this design: the engine has no "not applicable" outcome for a policy that matched nothing. Giving
+it one is decided separately; this clause states what holds until then.
+
 ### 2. The gate covers reads and writes
 
 All four actions are enforced. A gate on writes alone would leave every console obliged to
@@ -79,7 +89,11 @@ page boundaries untrue. The total counts what is visible, and that is the correc
 merged view over applications the caller cannot see never meant anything. A caller whose scope
 is empty receives an empty page and `200`, never `403`, because a `403` would itself disclose
 that other applications exist. This needs no new concept: the scope is the same
-`subject.attr.apps` §1 already uses.
+`subject.attr.apps` §1 already uses, narrowed to those the read decision permits — so an
+operator-authored `DENY` removes an application from the merged view exactly as it removes it
+from the per-application read. An application **outside** `subject.attr.apps` is not a candidate
+here even if a policy would permit reading it; scope and decision agree in the direction that can
+only show less.
 
 ### 3. Subject attributes for control-plane decisions come from the validated token only
 
@@ -130,6 +144,10 @@ The audit metadata of ADR-014 therefore records three things, and always all thr
 2. the **calling credential** — the `sub` of the validated token, which the engine knows;
 3. the **provenance of (1)** — whether the acting identity was **verified** by this engine or
    merely **declared** by the caller.
+
+Documents written by installation itself are not a caller's write. They record the installation
+identity in all three fields, with provenance **verified**, so no consumer has to treat an absence
+as a special case.
 
 Field (3) exists because **one token attests one identity**. This engine validates the signature
 it is given and sees exactly the subject that signature names; anything a caller says about a
@@ -194,6 +212,63 @@ from the route. Separating *where the rule is kept* from *which application it d
 what prevents the bootstrap paradox: were the set kept per application, a newly created
 application would be born with no policy authorizing its administration, and nothing could ever
 administer it.
+
+**The reserved identifier is part of the installation, not of the running configuration.** It is
+recorded in the installation marker when the marker is written, and from then on a deployment whose
+configured identifier differs from the recorded one **does not start**. Without that binding, a
+single configuration value changed after installation moves the control plane onto whichever policies
+happen to live in another application — an application an ordinary tenant administrator may author
+freely — which is the unconditional access §5 removes, reachable by a deployment mistake.
+
+**And the binding holds while the service runs, not only when it starts.** A decision reads the
+marker already, to know whether installation mode is over; it compares the recorded identifier with
+the configured one in the same breath and **denies every control-plane call** when they disagree.
+A startup check alone leaves the window in which installation is still open: a second deployment,
+started earlier with a different identifier, keeps serving from another application's policies after
+someone else's write closed installation, and nothing tells it.
+
+**Installation seeds into an empty reserved application, or it does not seed.** Seeding leaves
+whatever it finds untouched, which is what makes it idempotent — and that is also how an existing
+document becomes the rule. A service with no installation marker whose reserved application already
+holds a document installation did not write **refuses to start**, naming the application. The
+alternative is that whoever could write that application before it was reserved decides, silently,
+who administers everything afterwards. Installation's own documents are recognisable because it
+records itself as their subject (§4); nothing here inspects what such a document *says*, because a
+document that merely resembles the baseline is still not one this installation wrote.
+
+**Seeding finishes what it started (ADR-019).** Installation writes documents in more than one collection,
+so it has the same failure window every write in this service has, and the same answer: ADR-019 fixes a
+commit point and makes a retry **complete** a partially applied operation rather than skip it. Startup
+therefore converges on the end state — configuration, catalogue entry, and a baseline with an **active**
+version — completing its own half-written work, never merely checking that a document exists. Completing is
+not adopting: every document in the reserved application at that moment carries installation's own marks,
+because the refusal above already ran. And because a convergence that silently fails is worse than a refusal,
+startup verifies the end state afterwards and **refuses** if it does not hold.
+
+**Recovery is the operator's, and the refusal is what makes it possible.** The refusal names the
+application and what is in the way, document by document, so the operator can act on it with the API
+they already have. **What that API can remove decides which recovery applies**, and the refusal says
+which: a configuration document and a catalogue entry can be deleted, so emptying that application
+before upgrading is a real option; **a policy cannot** — versions are immutable and append-only
+(ADR-016) and no endpoint removes them — so where a policy is in the way the recovery is to point the
+reserved identifier at an application that does not exist yet. Deactivating such a policy is not
+enough: the check does not read what a document says, and a deactivated head is one activation away
+from saying it again. There is deliberately **no setting that adopts the existing documents** —
+that is the compatibility switch §5 rejects, wearing the clothes of a migration aid — and installation
+deletes nothing on its own: a service that quietly removes an operator's documents while starting is a
+worse failure than one that refuses to start and says why.
+
+**A service that cannot make a control-plane decision, or cannot vouch for who administers it, does
+not start.** The startup conditions are refusals rather than warnings, because each one leaves an
+installation nobody can administer or one administered by something nobody chose: no installation
+marker and no configured claim path for `apps`; no installation marker and no configured bootstrap
+value; no installation marker and a reserved application that already holds foreign documents; a
+marker whose recorded identifier differs from the configured one, or that records none; a blank
+configured identifier; and a marker with no usable `apps` mapping stored for the reserved
+application — where *usable* means a non-empty claim path, since a stored value that cannot resolve
+one leaves exactly the state this condition exists to prevent. A warning is the right signal only
+where the service still works: a configured claim path that differs from a usable stored mapping,
+which is ignored.
 
 The reserved identifier **cannot be created as an ordinary application**: the configuration
 endpoint refuses it. Reserving a name in a space that is otherwise free is a cost, and it is the
@@ -289,15 +364,24 @@ clause above.
 - **Breaking.** Callers that relied on the global marker stop working at the version that
   carries this change. The migration is: configure the claim that carries the caller's
   applications, deploy this service, let installation mode seed the control-plane policy set,
-  deploy the updated console.
+  perform one successful control-plane write with the bootstrap credential to close installation,
+  and deploy the updated console. **Between the deployment and that write, every console is
+  refused**: installation mode accepts the bootstrap subject and no one else.
+- **Every instance of the previous version stops before this one starts.** A version that predates this
+  change honours the global marker and ignores everything decided here, so one left running against the same
+  store during a rolling deployment can replace the policy set this version seeded — and the access this ADR
+  removes survives the upgrade, in a process this version does not control. The requirement is a deployment
+  one and it is stated as such; it is not enforceable from inside this service, which is exactly why it is
+  written down.
 - The control-plane policy set is **editable like any other policy set**, so an operator can
   revoke their own access. This is a property of the design, not a defect: recovery is
   reinstallation or direct repair of the store, and both are deliberate acts.
 - Control-plane decisions now evaluate a policy on every call, including reads. The cost is
   one evaluation against a small, cacheable policy set.
-- `audit.createdBy` changes meaning going forward. Entries written before this change record
-  the calling credential and cannot be reinterpreted; the discontinuity is permanent and
-  should be read as such.
+- `audit.createdBy` keeps its meaning — the credential that called — and the acting identity is
+  carried by the two fields added beside it. Entries written before this change have neither, and
+  their absence is what marks them as older; it is not a claim that the caller and the actor were
+  the same.
 - Two provenance rules now coexist and must not be confused: caller-asserted for the data
   plane, token-derived for the control plane. §3 exists to keep them apart.
 
@@ -309,6 +393,12 @@ clause above.
   every read.
 - Delegation on writes proves insufficient to attribute an action, for example where more
   than one hop separates the person from this service.
+- A future change again alters **who may write the control plane**, and by then deployments exist that
+  cannot be stopped for an upgrade. The answer then is a maintenance mode in the *preceding* version — one
+  that freezes control-plane writes while the next version installs — which only helps if it ships before it
+  is needed. It is not built now because every version from this one on enforces the same gate, so two of
+  them overlapping during a deployment is not a hazard: the hazard is specific to a version that still
+  carries the global marker.
 - A deployment requires **strong non-repudiation** of control-plane writes, or requires the gate
   of §3 to distinguish operators *within* one administrative surface. Either one is answered the
   same way — the person's token becomes the one this engine validates — and neither requires a

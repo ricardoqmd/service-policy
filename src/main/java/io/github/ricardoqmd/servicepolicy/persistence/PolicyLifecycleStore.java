@@ -1,6 +1,6 @@
 package io.github.ricardoqmd.servicepolicy.persistence;
 
-import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -11,7 +11,9 @@ import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
 
 import com.mongodb.MongoWriteException;
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.UpdateResult;
@@ -21,7 +23,6 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.problem.PolicyAlreadyExistsException;
 import io.github.ricardoqmd.servicepolicy.problem.PolicyNotFoundException;
 import io.github.ricardoqmd.servicepolicy.problem.PreconditionFailedException;
-import io.github.ricardoqmd.servicepolicy.problem.ProblemException;
 import io.github.ricardoqmd.servicepolicy.problem.VersionNotFoundException;
 
 /**
@@ -77,6 +78,23 @@ public class PolicyLifecycleStore {
     /** @return the number of policy heads matching the same app/status combination as {@link #findHeads}. */
     public long countHeads(String app, HeadStatus status) {
         return headRepository.countHeads(app, status);
+    }
+
+    /**
+     * @return policy heads of the given applications only, for the requested zero-based page, filtered by
+     *     lifecycle {@code status}. The scope is part of the query, so the page boundaries are those of the
+     *     scoped collection (ADR-033 §2). An empty scope matches nothing.
+     */
+    public List<PolicyHead> findHeadsIn(Collection<String> apps, HeadStatus status, int pageIndex, int size) {
+        return headRepository.findHeadsIn(apps, status, pageIndex, size).stream()
+                .map(PolicyLifecycleStore::recognisedHead)
+                .map(mapper::head)
+                .toList();
+    }
+
+    /** @return the number of heads matching the same scope and status as {@link #findHeadsIn}. */
+    public long countHeadsIn(Collection<String> apps, HeadStatus status) {
+        return headRepository.countHeadsIn(apps, status);
     }
 
     /** @return the head for the given identity {@code (app, policyId)} (ADR-026), if present. */
@@ -154,10 +172,10 @@ public class PolicyLifecycleStore {
      * @throws io.github.ricardoqmd.servicepolicy.problem.PolicyValidationException (400) if the
      *     actions are not catalogued in this app (ADR-028).
      */
-    public void create(String app, Policy policy, String callerSubject, String changeReason) {
+    public void create(String app, Policy policy, AuditActor actor, String changeReason) {
         policy = catalogueResolver.resolve(app, policy);
         String policyId = policy.id();
-        Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
+        Document auditDoc = mapper.toAuditDocument(actor, changeReason);
 
         Document setOnInsert = new Document()
                 .append("policyId", policyId)
@@ -217,7 +235,7 @@ public class PolicyLifecycleStore {
      *     actions are not catalogued in this app (ADR-028).
      */
     public int append(
-            String app, String policyId, Policy content, long ifMatch, String callerSubject, String changeReason) {
+            String app, String policyId, Policy content, long ifMatch, AuditActor actor, String changeReason) {
         content = catalogueResolver.resolve(app, content);
         if (!headExists(app, policyId)) {
             throw new PolicyNotFoundException(app, policyId);
@@ -242,7 +260,7 @@ public class PolicyLifecycleStore {
         int nextVersion =
                 latestVersion(app, policyId).map(latest -> latest.version + 1).orElse(1);
 
-        Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
+        Document auditDoc = mapper.toAuditDocument(actor, changeReason);
         PolicyVersionDocument versionDoc = mapper.toVersionDocument(app, policyId, nextVersion, content, auditDoc);
         versionRepository.mongoCollection().insertOne(versionDoc);
 
@@ -261,7 +279,7 @@ public class PolicyLifecycleStore {
      * @throws PreconditionFailedException (412) if {@code ifMatch} is stale.
      */
     public PolicyHead activate(
-            String app, String policyId, int version, long ifMatch, String callerSubject, String changeReason) {
+            String app, String policyId, int version, long ifMatch, AuditActor actor, String changeReason) {
         Optional<PolicyVersionDocument> versionDocOpt = versionRepository
                 .findByAppAndPolicyIdAndVersion(app, policyId, version)
                 .map(PolicyLifecycleStore::recognisedVersion);
@@ -273,7 +291,7 @@ public class PolicyLifecycleStore {
         }
         PolicyVersionDocument versionDoc = versionDocOpt.get();
 
-        Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
+        Document auditDoc = mapper.toAuditDocument(actor, changeReason);
         UpdateResult cas = headRepository
                 .mongoCollection()
                 .updateOne(
@@ -302,8 +320,8 @@ public class PolicyLifecycleStore {
      * @throws PolicyNotFoundException (404) if the policy does not exist.
      * @throws PreconditionFailedException (412) if {@code ifMatch} is stale.
      */
-    public PolicyHead deactivate(String app, String policyId, long ifMatch, String callerSubject, String changeReason) {
-        Document auditDoc = mapper.toAuditDocument(callerSubject, Instant.now().toString(), changeReason);
+    public PolicyHead deactivate(String app, String policyId, long ifMatch, AuditActor actor, String changeReason) {
+        Document auditDoc = mapper.toAuditDocument(actor, changeReason);
         UpdateResult cas = headRepository
                 .mongoCollection()
                 .updateOne(
@@ -402,32 +420,56 @@ public class PolicyLifecycleStore {
      * {@link StoredDocumentSchemaCondition} for why equality alone would admit values the read refuses.
      *
      * <p>A head this build does not know therefore fails the CAS like a stale revision, and
-     * {@link #staleOrMissing} re-reads it through {@link #recognisedOwnShape}, which refuses it: nothing is
-     * written, and no new outcome is needed to say so.
+     * {@link #staleOrMissing} asks the store which of the three possible causes it was: nothing is written,
+     * and no new outcome is needed to say so.
      */
     private static Bson writableHead(String app, String policyId, long ifMatch) {
-        return Filters.and(
-                identity(app, policyId),
-                Filters.eq("revision", ifMatch),
-                StoredDocumentSchemaCondition.writable(SCHEMA_VERSION, PolicyHeadDocument.SCHEMA_VERSION));
+        return Filters.and(identity(app, policyId), Filters.eq("revision", ifMatch), writableMarker());
+    }
+
+    /** The head's own marker, as the write condition accepts it (ADR-034 §8, §10). */
+    private static Bson writableMarker() {
+        return StoredDocumentSchemaCondition.writable(SCHEMA_VERSION, PolicyHeadDocument.SCHEMA_VERSION);
     }
 
     /**
-     * A CAS that matched nothing is either a stale If-Match on an existing policy (412), a policy that
-     * does not exist in this app (404), or a head whose shape this build does not know — which the
-     * re-read below refuses with {@link StoredDocumentSchemaException} before either could be decided.
+     * A CAS that matched nothing has exactly three causes, and the store is asked which one it was rather
+     * than inferred from a revision. Comparing the revision read back with the caller's {@code If-Match}
+     * cannot tell a stale caller from a head this build may read but not write, and answering the latter
+     * with 412 would tell a caller whose {@code If-Match} is current that it is not — a precondition no
+     * retry can satisfy.
      *
-     * <p>The re-read exists only to report a revision, so it checks the head's <em>own</em> marker and not
-     * the marker of the content it does not return. A head this build can read in its own shape, holding
-     * content copied in a shape it cannot, still answers a stale {@code If-Match} with its revision — the
-     * one way a client of this build can learn it, and so reach the activation that replaces that content.
+     * <ul>
+     *   <li>no head with that identity — 404;
+     *   <li>a head with that identity and an own marker this build accepts for writing — genuinely stale, 412
+     *       with its revision. The revision is read through {@link #recognisedOwnShape}, and only the head's
+     *       own marker is checked: a head holding content copied in a shape this build cannot read still
+     *       answers a stale {@code If-Match} with its revision, the one way to reach the activation that
+     *       replaces that content;
+     *   <li>a head with that identity whose own marker this build does not accept for writing — the shape
+     *       refusal, whatever its revision. The marker is read as stored, without the codec, so a value the
+     *       codec would convert or reject is reported as it is.
+     * </ul>
      */
-    private ProblemException staleOrMissing(String app, String policyId) {
-        Optional<PolicyHeadDocument> existing =
-                headRepository.findByAppAndPolicyId(app, policyId).map(PolicyLifecycleStore::recognisedOwnShape);
-        if (existing.isPresent()) {
-            return new PreconditionFailedException(app, policyId, existing.get().revision);
+    private RuntimeException staleOrMissing(String app, String policyId) {
+        MongoCollection<Document> heads = headRepository.mongoCollection().withDocumentClass(Document.class);
+        Document stored = heads.find(identity(app, policyId))
+                .projection(Projections.include(SCHEMA_VERSION))
+                .first();
+        if (stored == null) {
+            return new PolicyNotFoundException(app, policyId);
         }
-        return new PolicyNotFoundException(app, policyId);
+        if (heads.countDocuments(Filters.and(identity(app, policyId), writableMarker())) == 0) {
+            return new StoredDocumentSchemaException(
+                    PolicyHeadDocument.COLLECTION,
+                    stored.getObjectId("_id"),
+                    SCHEMA_VERSION,
+                    stored.get(SCHEMA_VERSION));
+        }
+        return headRepository
+                .findByAppAndPolicyId(app, policyId)
+                .map(PolicyLifecycleStore::recognisedOwnShape)
+                .<RuntimeException>map(existing -> new PreconditionFailedException(app, policyId, existing.revision))
+                .orElseGet(() -> new PolicyNotFoundException(app, policyId));
     }
 }

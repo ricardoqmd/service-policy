@@ -20,6 +20,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
 import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
+import io.github.ricardoqmd.servicepolicy.persistence.AuditActor;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
@@ -81,8 +82,8 @@ class EnforcementRemainsTwoValuedTest {
                         "clearance-gate",
                         Effect.PERMIT,
                         new Comparison(Operator.GT, new AttributeRef("resource.attr.clearance"), new Literal(5)))));
-        lifecycleStore.create(APP, policy, "seed", null);
-        lifecycleStore.activate(APP, "instance-gated", 1, 0L, "seed", null);
+        lifecycleStore.create(APP, policy, AuditActor.verified("seed"), null);
+        lifecycleStore.activate(APP, "instance-gated", 1, 0L, AuditActor.verified("seed"), null);
 
         given().contentType(ContentType.JSON)
                 .body("""

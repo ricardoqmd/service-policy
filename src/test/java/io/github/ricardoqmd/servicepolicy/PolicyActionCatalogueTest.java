@@ -34,6 +34,9 @@ import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.RestAssured;
 import io.restassured.http.ContentType;
 
@@ -51,12 +54,12 @@ import io.restassured.http.ContentType;
  * {@code SimulationResourceTest}.
  */
 @QuarkusTest
-@TestSecurity(
-        user = "admin-user",
-        roles = {PolicyActionCatalogueTest.ADMIN})
+@TestSecurity(user = "admin-user")
+@OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
 class PolicyActionCatalogueTest {
 
-    static final String ADMIN = "authz-admin";
+    @Inject
+    ControlPlaneTestSupport controlPlane;
 
     private static final String APP = "test-app";
 
@@ -81,6 +84,7 @@ class PolicyActionCatalogueTest {
         headRepository.deleteAll();
         versionRepository.deleteAll();
         catalogueRepository.deleteAll();
+        controlPlane.installed();
     }
 
     @AfterEach
@@ -201,8 +205,8 @@ class PolicyActionCatalogueTest {
                 .body("invalidParams[0].field", equalTo("actions"))
                 .body("invalidParams[0].reason", containsString("declare the catalogue before authoring"));
 
-        assertEquals(0, headRepository.count());
-        assertEquals(0, versionRepository.count());
+        assertEquals(0, headRepository.count("app", APP));
+        assertEquals(0, versionRepository.count("app", APP));
     }
 
     /** '*' against an app that declares nothing is rejected, not silently expanded to nothing. */
@@ -305,8 +309,8 @@ class PolicyActionCatalogueTest {
                 .body("reason", equalTo("permitted by rule assigned-access"));
 
         // Zero effect: a simulation persists nothing, catalogue resolution included.
-        assertEquals(0, headRepository.count());
-        assertEquals(0, versionRepository.count());
+        assertEquals(0, headRepository.count("app", APP));
+        assertEquals(0, versionRepository.count("app", APP));
     }
 
     @Test
@@ -323,8 +327,8 @@ class PolicyActionCatalogueTest {
                 .body("invalidParams[0].field", equalTo("actions"))
                 .body("invalidParams[0].reason", containsString("'incinerate'"));
 
-        assertEquals(0, headRepository.count());
-        assertEquals(0, versionRepository.count());
+        assertEquals(0, headRepository.count("app", APP));
+        assertEquals(0, versionRepository.count("app", APP));
     }
 
     @Test
@@ -338,8 +342,8 @@ class PolicyActionCatalogueTest {
                 .body("code", equalTo("INVALID_POLICY"))
                 .body("invalidParams[0].reason", containsString("declare the catalogue before authoring"));
 
-        assertEquals(0, headRepository.count());
-        assertEquals(0, versionRepository.count());
+        assertEquals(0, headRepository.count("app", APP));
+        assertEquals(0, versionRepository.count("app", APP));
     }
 
     // --- Legacy wildcard data is inert at evaluation ---

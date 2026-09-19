@@ -30,6 +30,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
 import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
+import io.github.ricardoqmd.servicepolicy.persistence.AuditActor;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
@@ -256,7 +257,7 @@ class PermissionsResourceTest {
 
         // Deactivate the create policy directly — the cache is not invalidated (no write-through, v1).
         long revision = lifecycleStore.findHead(app, "p-create").orElseThrow().revision();
-        lifecycleStore.deactivate(app, "p-create", revision, "seed", null);
+        lifecycleStore.deactivate(app, "p-create", revision, AuditActor.verified("seed"), null);
 
         // Still served from cache: 'create' is present though its policy is now inactive.
         given().when()
@@ -373,8 +374,8 @@ class PermissionsResourceTest {
     }
 
     private void activate(String app, Policy policy) {
-        lifecycleStore.create(app, policy, "seed", null);
-        lifecycleStore.activate(app, policy.id(), 1, 0L, "seed", null);
+        lifecycleStore.create(app, policy, AuditActor.verified("seed"), null);
+        lifecycleStore.activate(app, policy.id(), 1, 0L, AuditActor.verified("seed"), null);
     }
 
     private static Policy policy(

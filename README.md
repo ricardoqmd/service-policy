@@ -136,14 +136,135 @@ Subject is resolved from the validated `sub` claim (fallback: `preferred_usernam
 `/q/health` and `/info` are public. `GET /v1/permissions` responses are safe to cache
 per `subject + app + policyVersion`.
 
-### Authorization markers (ADR-013)
+### Control-plane authorization (ADR-033)
 
-Two authorization markers gate elevated operations. Each marker has a configurable **mode**
+Every control-plane endpoint — policies, simulation, action catalogue and configuration,
+reads included — is authorized **per application, by policy**. There is no administrative
+role or scope, and no setting that restores one.
+
+- **The decision.** The engine evaluates its own control-plane policy set, over the
+  resource type `policy` and the actions `policy:read`, `policy:write`, `policy:activate`
+  and `policy:deactivate`. The application being decided about is the one in the route,
+  as `resource.attr.app`. Installation seeds one baseline rule:
+  `permit when resource.attr.app IN subject.attr.apps`.
+- **Whose attributes.** The caller's own, derived from its **validated token** through the
+  claim mapping stored for the **reserved control-plane application** — never from a
+  request body, and never from the configuration of the application being decided about.
+- **Where the rules live.** In one reserved application (default
+  `service-policy-control-plane`). Finer grants are policies authored there through the
+  ordinary API; under deny-overrides every policy selected for a verb must permit it, so a
+  grant that widens the baseline is written into the policy that governs that verb.
+- **Denials.** A refused call is `403 FORBIDDEN` with the same body whether or not the
+  application exists. The merged catalogue `GET /v1/policies` is scoped to the
+  applications you may read: `200` with an empty page when there are none.
+- **On whose behalf.** A write may carry the body field `subject`. It authorizes nothing:
+  the audit records `createdBy` (the calling credential), `subject` and
+  `subjectProvenance` — `VERIFIED` when the identity is the token's own, `DECLARED` when
+  the caller asserted it.
+
+|                                               Property (env var)                                                |            Default             |                                                                                                           Meaning                                                                                                           |
+|-----------------------------------------------------------------------------------------------------------------|--------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `service-policy.control-plane.subject-attributes.apps` (`SERVICE_POLICY_CONTROL_PLANE_SUBJECT_ATTRIBUTES_APPS`) | —                              | Claim path carrying the caller's applications. **Required until installation**: a service that is not installed and lacks it does not start. Ignored afterwards (a divergence is logged once).                              |
+| `service-policy.control-plane.bootstrap.value` (`SERVICE_POLICY_CONTROL_PLANE_BOOTSTRAP_VALUE`)                 | —                              | Claim value of the one caller accepted before installation. **Required until installation**: without it no caller could make the write that closes installation, so the service does not start.                             |
+| `service-policy.control-plane.bootstrap.claim` (`SERVICE_POLICY_CONTROL_PLANE_BOOTSTRAP_CLAIM`)                 | `sub`                          | Claim path that value is read from.                                                                                                                                                                                         |
+| `service-policy.control-plane.reserved-app` (`SERVICE_POLICY_CONTROL_PLANE_RESERVED_APP`)                       | `service-policy-control-plane` | Where the control-plane rules and mapping are kept. **Fixed at installation**: the marker records it; a deployment configured with a different one does not start, and one already running denies every control-plane call. |
+
+**Installation.** At startup, a store with no installation marker is seeded with the reserved
+application's configuration (`apps` → the configured claim path), its catalogue, and the active
+baseline policy — **only into an empty reserved application**. If that application already holds
+any document installation did not write, the service refuses to start, writes nothing, and names
+what is in the way — the configuration, each catalogue entry, each policy once however many of its
+documents are foreign — up to ten names and a count of the rest (see *Upgrading a store that
+already uses the reserved name* below). Seeding finishes what it started: a start interrupted
+half-way leaves part of installation's own documents, and the next start completes them — a
+missing version 1 is written, an inactive baseline is activated — then checks that the
+configuration, the catalogue entry and the active baseline are all there, and refuses to start if
+they are not. Over a complete installation a restart changes nothing. Until the first successful
+control-plane write, only the bootstrap subject is accepted; that
+write records a one-way marker and installation mode ends for good. The bootstrap value grants
+nothing afterwards, deleting policies does not reopen it, and nothing in the service deletes
+the marker. From then on the mapping is changed with `PUT` on the reserved application's
+configuration, which refuses a mapping that would leave its own caller without the reserved
+application; that configuration cannot be created or deleted through the API.
+
+The marker also records **which application is reserved**, so that identifier belongs to the
+installation and not to the running configuration: a deployment configured with a different one
+**does not start**, and the refusal names the recorded value; an instance that was already
+running under a different one when installation closed denies every control-plane call, and logs
+why once. A blank identifier is refused at startup. A marker in the shape an earlier build wrote
+is refused too — the store predates the build and has to be reinstalled; the identifier is
+neither guessed nor backfilled. Startup likewise refuses, rather than warning, when an installed
+store's reserved application holds no usable `apps` mapping — none, or a value that is not a
+non-empty claim path: every control-plane decision reads that mapping, so it would deny everyone,
+with nobody left to repair it through the API. The refusal says how to repair it in the store: a
+configuration document for the reserved application with `subjectAttributes.apps` set to a
+non-empty claim path, `schemaVersion` `1` and `revision` as a 64-bit integer (for example
+`NumberLong(1)`), which the API can then read and update.
+
+The installation identity, `service-policy:installation`, is installation's alone: a caller whose
+subject resolves to it — through `sub`, or `preferred_username` when there is no `sub` — is refused
+every control-plane call, so no caller can write a document carrying installation's audit.
+
+#### Upgrading to 0.6.0 — breaking
+
+The global administrative marker (`service-policy.authz.admin.*`, default role
+`authz-admin`) is removed, and every control-plane caller is now authorized per application.
+A deployment that still sets `service-policy.authz.admin.*` in a configuration file fails to
+start with an unknown-property error (`SRCFG00050`); remove it. The same setting as an
+environment variable (`SERVICE_POLICY_AUTHZ_ADMIN_*`) is ignored and grants nothing; remove it
+too. To migrate:
+
+1. Make the tokens of each administrative caller carry the applications it administers in a
+   claim, and set `SERVICE_POLICY_CONTROL_PLANE_SUBJECT_ATTRIBUTES_APPS` to that claim's
+   path. Include the reserved application for the callers that administer the control plane
+   itself.
+2. Set `SERVICE_POLICY_CONTROL_PLANE_BOOTSTRAP_VALUE` to the `sub` of the credential that
+   performs installation.
+3. **Stop every instance of the previous version**, then start this one — not as a rolling
+   update, and not blue/green with the previous version still live. The previous version honours
+   the global marker and ignores the gate, so an instance of it left running against the same
+   store can replace the policy set this version seeds, before or after installation closes, and
+   the access this release removes would survive the upgrade. Startup seeds the control-plane
+   policy set. **From here until step 4
+   every console is refused**: installation mode accepts the bootstrap subject and nobody else.
+   In the meantime the merged catalogue `GET /v1/policies` answers `200` with an empty page
+   rather than `403`, because an empty scope is answered that way; it is not data loss, and the
+   policies reappear once installation is closed.
+4. Perform one control-plane write with the bootstrap credential — this closes installation.
+   It is an ordinary control-plane write, and not every attempt closes: a `PUT` of the reserved
+   application's configuration made by a bootstrap credential that does **not** itself carry the
+   reserved application is refused by the self-lockout guard (`400 INVALID_APP_CONFIG`) and
+   leaves installation mode open. Prefer closing it with a write made by a credential that
+   **already carries the reserved application** in its claim — for example a `PUT` of that
+   configuration with the mapping you intend to keep. The mapping is then proven against a real
+   token before the close makes it irreversible.
+5. Deploy the updated console.
+
+#### Upgrading a store that already uses the reserved name
+
+Installation seeds only into an empty reserved application. If the previous version was used to
+write anything under that name (`service-policy-control-plane` unless you configured another),
+this version refuses to start and names what is in the way — the configuration, each catalogue
+entry by resource type, each policy by id — and nothing is adopted or deleted. The order that
+works:
+
+1. **With the previous version still running**, list what the reserved application holds: its
+   policies, its action catalogue and its configuration.
+2. **Decide.** If it holds **any policy**, the only way out is to set
+   `SERVICE_POLICY_CONTROL_PLANE_RESERVED_APP` to an application that does not exist yet:
+   policies cannot be removed through the API (versions are immutable), and deactivating one is
+   not enough. If it holds only a configuration and catalogue entries, you may instead delete them
+   through the previous version's API.
+3. **Then upgrade**, stopping every instance of the previous version first (step 3 above). If
+   startup still refuses, the message lists what remains.
+
+### Delegation marker (ADR-013)
+
+The delegation marker gates delegated data-plane queries. It has a configurable **mode**
 (`role` or `scope`) so it maps cleanly to any IdP:
 
 |   Marker   | Default mode | Default value |                 Controls                 |
 |------------|--------------|---------------|------------------------------------------|
-| admin      | `role`       | `authz-admin` | `POST /v1/policies` (control plane)      |
 | delegation | `role`       | `pdp-client`  | Explicit `subject` ≠ caller (data plane) |
 
 **mode=role** (Keycloak default): the check is `identity.hasRole(configuredRole)`.
@@ -157,8 +278,6 @@ QUARKUS_OIDC_ROLES_ROLE_CLAIM_PATH=roles          # Auth0 / Okta flat roles
 and checks membership:
 
 ```
-SERVICE_POLICY_AUTHZ_ADMIN_MODE=scope
-SERVICE_POLICY_AUTHZ_ADMIN_SCOPE=authz-admin
 SERVICE_POLICY_AUTHZ_DELEGATION_MODE=scope
 SERVICE_POLICY_AUTHZ_DELEGATION_SCOPE=pdp-client
 ```
@@ -191,8 +310,8 @@ Relevant ADRs:
 
 ## Policy administration (v1)
 
-All policy authoring and lifecycle endpoints require the admin marker (see
-[Authorization markers](#authorization-markers-adr-013) above). Errors follow the
+All policy authoring and lifecycle endpoints are authorized per application (see
+[Control-plane authorization](#control-plane-authorization-adr-033) above). Errors follow the
 RFC 9457 `application/problem+json` contract — see [docs/ERRORS.md](docs/ERRORS.md)
 for the full error catalog.
 
@@ -238,7 +357,7 @@ header carrying the policy head's current `ETag`.
 ```http
 # 1) Create (inactive, version 1)
 POST /v1/policies
-Authorization: Bearer <admin-token>
+Authorization: Bearer <token-carrying-the-app-in-apps>
 Content-Type: application/json
 
 {
@@ -265,7 +384,7 @@ GET /v1/policies/doc-access
 
 # 3) Activate (policy is now evaluable)
 POST /v1/policies/doc-access/activate
-Authorization: Bearer <admin-token>
+Authorization: Bearer <token-carrying-the-app-in-apps>
 If-Match: "0"
 Content-Type: application/json
 

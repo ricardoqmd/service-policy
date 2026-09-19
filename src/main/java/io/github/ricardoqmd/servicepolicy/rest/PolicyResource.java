@@ -22,7 +22,8 @@ import jakarta.ws.rs.core.UriInfo;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
-import io.github.ricardoqmd.servicepolicy.config.ServicePolicyConfig;
+import io.github.ricardoqmd.servicepolicy.controlplane.ControlPlaneAction;
+import io.github.ricardoqmd.servicepolicy.controlplane.ControlPlaneDecision;
 import io.github.ricardoqmd.servicepolicy.domain.policy.HeadStatus;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.persistence.ConditionDocumentMapper;
@@ -31,7 +32,6 @@ import io.github.ricardoqmd.servicepolicy.persistence.PolicyDocumentMapper;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHead;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersion;
-import io.github.ricardoqmd.servicepolicy.problem.ForbiddenProblemException;
 import io.github.ricardoqmd.servicepolicy.problem.InvalidRequestException;
 import io.github.ricardoqmd.servicepolicy.problem.PolicyNotFoundException;
 import io.github.ricardoqmd.servicepolicy.problem.PolicyValidationException;
@@ -43,8 +43,11 @@ import io.quarkus.security.Authenticated;
 /**
  * PAP-facing policy endpoints.
  *
- * <p>All operations require the admin authorization marker (ADR-013 §4). The Bearer JWT is
- * validated by quarkus-oidc; the admin marker is then checked programmatically.
+ * <p>Every operation is authorized per application (ADR-033): the first thing each one does is ask the
+ * {@link ControlPlaneGate} whether the caller may perform its control-plane action on the route's
+ * application. Reads need {@code policy:read}, authoring needs {@code policy:write}, and activation and
+ * deactivation need their own action. A write may declare on whose behalf it is made with the body field
+ * {@code subject}; that authorizes nothing and is recorded in the audit (ADR-033 §4).
  *
  * <p>Authoring ({@code POST}) and appending ({@code PUT}) write through the head-pointer model
  * (ADR-016) following the transaction-free write invariants of ADR-019. Reads ({@code GET}) return
@@ -66,31 +69,32 @@ public class PolicyResource {
     private static final int MAX_PAGE_SIZE = 100;
 
     private final PolicyLifecycleStore lifecycleStore;
-    private final AuthContext authContext;
-    private final ServicePolicyConfig cfg;
+    private final ControlPlaneGate gate;
     private final PolicyDocumentMapper policyMapper = new PolicyDocumentMapper(new ConditionDocumentMapper());
     private final PolicyReadMapper readMapper = new PolicyReadMapper();
 
-    PolicyResource(PolicyLifecycleStore lifecycleStore, AuthContext authContext, ServicePolicyConfig cfg) {
+    PolicyResource(PolicyLifecycleStore lifecycleStore, ControlPlaneGate gate) {
         this.lifecycleStore = lifecycleStore;
-        this.authContext = authContext;
-        this.cfg = cfg;
+        this.gate = gate;
     }
 
     @POST
     @Operation(
             summary = "Create a policy",
             description = "Creates a new inactive policy in the given app (ADR-014, ADR-019, ADR-026). Requires"
-                    + " the admin marker. The body must NOT carry an 'app' field — it is determined by"
-                    + " the path. 'actions' is validated against the action catalogue of this app's"
-                    + " resourceType (ADR-028): an uncatalogued action, or a resourceType the app has not"
-                    + " declared at all, is a 400 INVALID_POLICY. 'actions': ['*'] is expanded to the full"
-                    + " catalogue list AT AUTHORING, so the persisted version carries the explicit list and"
-                    + " a verb added to the catalogue later does not widen it. Returns 400 if the body is"
-                    + " malformed or carries 'app', 409 if a policy with the same id already exists IN THIS"
-                    + " APP. Not evaluable until activated.")
+                    + " policy:write on this app (ADR-033); otherwise 403 FORBIDDEN, which does not say whether"
+                    + " the app exists. The optional body field 'subject' declares on whose behalf the write is"
+                    + " made: it authorizes nothing, and the audit records it as 'subject' with"
+                    + " 'subjectProvenance' DECLARED (VERIFIED when absent or equal to the caller). The body"
+                    + " must NOT carry an 'app' field — it is determined by the path. 'actions' is validated"
+                    + " against the action catalogue of this app's resourceType (ADR-028): an uncatalogued"
+                    + " action, or a resourceType the app has not declared at all, is a 400 INVALID_POLICY."
+                    + " 'actions': ['*'] is expanded to the full catalogue list AT AUTHORING, so the persisted"
+                    + " version carries the explicit list and a verb added to the catalogue later does not"
+                    + " widen it. Returns 400 if the body is malformed or carries 'app', 409 if a policy with"
+                    + " the same id already exists IN THIS APP. Not evaluable until activated.")
     public Response create(@PathParam("app") String app, Map<String, Object> body) {
-        requireAdmin();
+        ControlPlaneDecision decision = gate.authorize(app, ControlPlaneAction.WRITE);
 
         if (body == null || body.isEmpty()) {
             throw new InvalidRequestException("request body must not be empty.");
@@ -104,7 +108,8 @@ public class PolicyResource {
         }
 
         String changeReason = body.get("changeReason") instanceof String s ? s : null;
-        lifecycleStore.create(app, policy, authContext.callerSubject(), changeReason);
+        lifecycleStore.create(app, policy, gate.actor(declaredSubject(body)), changeReason);
+        gate.writeSucceeded(decision);
         return Response.status(Response.Status.CREATED)
                 .entity(new PolicyCreated(policy.id(), 1, false))
                 .build();
@@ -114,19 +119,22 @@ public class PolicyResource {
     @Path("/{id}")
     @Operation(
             summary = "Append a new version",
-            description = "Appends an inactive version N+1 (ADR-019). Requires the admin marker and an"
-                    + " If-Match header with the current ETag. The new version's 'actions' is validated"
-                    + " against the action catalogue exactly as on create (ADR-028) — an uncatalogued"
-                    + " action or an undeclared resourceType is a 400 INVALID_POLICY, and ['*'] is"
-                    + " expanded to the explicit catalogue list before the version is stored. Appending"
-                    + " is how an existing policy is widened after the catalogue grows. Returns 428 if"
-                    + " If-Match is absent, 412 if stale, 404 if policy unknown, 400 if body invalid.")
+            description = "Appends an inactive version N+1 (ADR-019). Requires policy:write on this app (ADR-033)"
+                    + " — otherwise 403 FORBIDDEN, which does not say whether the app exists — and an If-Match"
+                    + " header with the current ETag. The new version's 'actions' is validated against the"
+                    + " action catalogue exactly as on create (ADR-028) — an uncatalogued action or an"
+                    + " undeclared resourceType is a 400 INVALID_POLICY, and ['*'] is expanded to the explicit"
+                    + " catalogue list before the version is stored. Appending is how an existing policy is"
+                    + " widened after the catalogue grows. The optional body field 'subject' declares on whose"
+                    + " behalf the write is made; it authorizes nothing and is recorded in the audit (ADR-033"
+                    + " §4). Returns 428 if If-Match is absent, 412 if stale, 404 if policy unknown, 400 if"
+                    + " body invalid.")
     public Response append(
             @PathParam("app") String app,
             @PathParam("id") String id,
             @HeaderParam("If-Match") String ifMatch,
             WriteVersionRequest body) {
-        requireAdmin();
+        ControlPlaneDecision decision = gate.authorize(app, ControlPlaneAction.WRITE);
         long revision = parseIfMatch(ifMatch);
 
         if (body == null || body.content() == null || body.content().isEmpty()) {
@@ -141,7 +149,8 @@ public class PolicyResource {
         }
 
         int newVersion =
-                lifecycleStore.append(app, id, policy, revision, authContext.callerSubject(), body.changeReason());
+                lifecycleStore.append(app, id, policy, revision, gate.actor(body.subject()), body.changeReason());
+        gate.writeSucceeded(decision);
         return Response.ok(new PolicyCreated(id, newVersion, false)).build();
     }
 
@@ -149,22 +158,25 @@ public class PolicyResource {
     @Path("/{id}/activate")
     @Operation(
             summary = "Activate a specific policy version",
-            description = "Activates the named version (ADR-020). Requires the admin marker and an"
-                    + " If-Match header with the head's current ETag. Returns 428 if If-Match is"
-                    + " absent or unparseable, 412 if stale (with currentRevision), 404 if the"
-                    + " policy or the requested version does not exist.")
+            description = "Activates the named version (ADR-020). Requires policy:activate on this app (ADR-033)"
+                    + " — otherwise 403 FORBIDDEN, which does not say whether the app exists — and an If-Match"
+                    + " header with the head's current ETag. The optional body field 'subject' declares on"
+                    + " whose behalf the write is made; it authorizes nothing and is recorded in the audit"
+                    + " (ADR-033 §4). Returns 428 if If-Match is absent or unparseable, 412 if stale (with"
+                    + " currentRevision), 404 if the policy or the requested version does not exist.")
     public Response activate(
             @PathParam("app") String app,
             @PathParam("id") String id,
             @HeaderParam("If-Match") String ifMatch,
             ActivateRequest body) {
-        requireAdmin();
+        ControlPlaneDecision decision = gate.authorize(app, ControlPlaneAction.ACTIVATE);
         long revision = parseIfMatch(ifMatch);
         if (body == null || body.version() == null) {
             throw new InvalidRequestException("request body must include a 'version' number.");
         }
         PolicyHead head = lifecycleStore.activate(
-                app, id, body.version(), revision, authContext.callerSubject(), body.changeReason());
+                app, id, body.version(), revision, gate.actor(body.subject()), body.changeReason());
+        gate.writeSucceeded(decision);
         return Response.ok(readMapper.headView(head))
                 .tag(new EntityTag(String.valueOf(head.revision())))
                 .build();
@@ -175,17 +187,22 @@ public class PolicyResource {
     @Operation(
             summary = "Deactivate a policy",
             description = "Clears the active version pointer — a soft retire that preserves version"
-                    + " history (ADR-014, ADR-020). Requires the admin marker and If-Match."
-                    + " Body is optional (only changeReason). Returns 428, 412, or 404 on errors.")
+                    + " history (ADR-014, ADR-020). Requires policy:deactivate on this app (ADR-033) —"
+                    + " otherwise 403 FORBIDDEN, which does not say whether the app exists — and If-Match."
+                    + " Body is optional: 'changeReason', and 'subject', which declares on whose behalf the"
+                    + " write is made, authorizes nothing and is recorded in the audit (ADR-033 §4)."
+                    + " Returns 428, 412, or 404 on errors.")
     public Response deactivate(
             @PathParam("app") String app,
             @PathParam("id") String id,
             @HeaderParam("If-Match") String ifMatch,
             DeactivateRequest body) {
-        requireAdmin();
+        ControlPlaneDecision decision = gate.authorize(app, ControlPlaneAction.DEACTIVATE);
         long revision = parseIfMatch(ifMatch);
         String changeReason = body != null ? body.changeReason() : null;
-        PolicyHead head = lifecycleStore.deactivate(app, id, revision, authContext.callerSubject(), changeReason);
+        String subject = body != null ? body.subject() : null;
+        PolicyHead head = lifecycleStore.deactivate(app, id, revision, gate.actor(subject), changeReason);
+        gate.writeSucceeded(decision);
         return Response.ok(readMapper.headView(head))
                 .tag(new EntityTag(String.valueOf(head.revision())))
                 .build();
@@ -198,7 +215,9 @@ public class PolicyResource {
                     + " (ADR-017), in every lifecycle state by default. Use '?status=' to filter by"
                     + " lifecycle state — 'active' (has an active version), 'inactive' (has none) or"
                     + " 'all' (default, no state filter), ADR-025. An unknown 'status' returns 400."
-                    + " The cross-app catalogue is a different resource: GET /v1/policies.")
+                    + " Requires policy:read on this app (ADR-033); otherwise 403 FORBIDDEN, which does not"
+                    + " say whether the app exists. The cross-app catalogue is a different resource:"
+                    + " GET /v1/policies.")
     public Response list(
             @PathParam("app") String app,
             @QueryParam("page") @DefaultValue("1") int page,
@@ -206,7 +225,7 @@ public class PolicyResource {
             @QueryParam("view") String view,
             @QueryParam("status") String status,
             @Context UriInfo uriInfo) {
-        requireAdmin();
+        gate.authorize(app, ControlPlaneAction.READ);
         validatePaging(page, size);
         HeadStatus headStatus = parseStatus(status, uriInfo);
 
@@ -229,9 +248,11 @@ public class PolicyResource {
     @Operation(
             summary = "Get a policy head",
             description = "Returns the full policy head. Response includes a strong ETag equal to the"
-                    + " head's current revision. 404 if no policy has the given id.")
+                    + " head's current revision. 404 if no policy has the given id. Requires policy:read on"
+                    + " this app (ADR-033); otherwise 403 FORBIDDEN, which does not say whether the app"
+                    + " exists.")
     public Response getById(@PathParam("app") String app, @PathParam("id") String id) {
-        requireAdmin();
+        gate.authorize(app, ControlPlaneAction.READ);
         PolicyHead head = lifecycleStore.findHead(app, id).orElseThrow(() -> new PolicyNotFoundException(app, id));
         return Response.ok(readMapper.headView(head))
                 .tag(new EntityTag(String.valueOf(head.revision())))
@@ -242,14 +263,16 @@ public class PolicyResource {
     @Path("/{id}/versions")
     @Operation(
             summary = "List versions of a policy",
-            description = "Returns the policy's versions (newest first) as a paginated collection.")
+            description = "Returns the policy's versions (newest first) as a paginated collection. Requires"
+                    + " policy:read on this app (ADR-033); otherwise 403 FORBIDDEN, which does not say whether"
+                    + " the app exists.")
     public Response listVersions(
             @PathParam("app") String app,
             @PathParam("id") String id,
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("size") @DefaultValue("20") int size,
             @QueryParam("view") String view) {
-        requireAdmin();
+        gate.authorize(app, ControlPlaneAction.READ);
         validatePaging(page, size);
         if (!lifecycleStore.headExists(app, id)) {
             throw new PolicyNotFoundException(app, id);
@@ -274,20 +297,27 @@ public class PolicyResource {
     @Operation(
             summary = "Get a specific policy version",
             description = "Returns the full content of one immutable version. 404 if the policy or"
-                    + " version does not exist.")
+                    + " version does not exist. Requires policy:read on this app (ADR-033); otherwise 403"
+                    + " FORBIDDEN, which does not say whether the app exists.")
     public Response getVersion(
             @PathParam("app") String app, @PathParam("id") String id, @PathParam("version") int version) {
-        requireAdmin();
+        gate.authorize(app, ControlPlaneAction.READ);
         return lifecycleStore
                 .findVersion(app, id, version)
                 .map(found -> Response.ok(readMapper.versionContent(found)).build())
                 .orElseThrow(() -> new VersionNotFoundException(app, id, version));
     }
 
-    private void requireAdmin() {
-        if (!authContext.has(cfg.authz().admin())) {
-            throw new ForbiddenProblemException("admin marker required.");
+    /**
+     * The {@code subject} a create body declares, if any. That body is an untyped document, so the type is
+     * checked here: a declaration that is not a string is a malformed request, not an absent one.
+     */
+    private static String declaredSubject(Map<String, Object> body) {
+        Object subject = body.get("subject");
+        if (subject == null || subject instanceof String) {
+            return (String) subject;
         }
+        throw new InvalidRequestException("'subject' must be a string.");
     }
 
     private static void validatePaging(int page, int size) {

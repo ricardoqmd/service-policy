@@ -15,13 +15,16 @@ import org.junit.jupiter.api.Test;
 import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.http.ContentType;
 
 /**
  * Integration tests for the action catalogue admin surface (ADR-028):
  * {@code /v1/apps/{app}/action-catalogue}. Covers the CRUD contract, the ETag / If-Match protocol
- * (ADR-018), the admin gate (ADR-013), the body-validation rejections, and per-app isolation
- * (ADR-026).
+ * (ADR-018), the per-application control-plane gate (ADR-033), the body-validation rejections, and
+ * per-app isolation (ADR-026).
  *
  * <p>The in-use guard ({@code ACTION_IN_USE}) is exercised in {@code PolicyActionCatalogueTest},
  * where an active policy exists to do the blocking.
@@ -29,7 +32,8 @@ import io.restassured.http.ContentType;
 @QuarkusTest
 class ActionCatalogueResourceTest {
 
-    private static final String ADMIN = "authz-admin";
+    @Inject
+    ControlPlaneTestSupport controlPlane;
 
     private static final String APP = "test-app";
 
@@ -44,14 +48,14 @@ class ActionCatalogueResourceTest {
     @AfterEach
     void clean() {
         catalogueRepository.deleteAll();
+        controlPlane.installed();
     }
 
     // ── POST — create ────────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createReturns201WithViewAndEtag() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -69,9 +73,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createDuplicateResourceTypeReturns409() {
         declare("document", "read");
 
@@ -90,9 +93,8 @@ class ActionCatalogueResourceTest {
     // ── GET — list and single entry ──────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void listReturnsEveryEntrySortedByResourceType() {
         declare("request", "submit");
         declare("document", "read");
@@ -108,17 +110,15 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void listIsEmptyWhenTheAppDeclaresNothing() {
         given().when().get(CATALOGUE, APP).then().statusCode(200).body("data", hasSize(0));
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void getEntryReturnsViewAndEtag() {
         declare("document", "read", "delete");
 
@@ -134,9 +134,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void getUnknownEntryReturns404() {
         given().when()
                 .get(ENTRY, APP, "ghost")
@@ -149,9 +148,8 @@ class ActionCatalogueResourceTest {
     // ── PUT — replace ────────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceReplacesTheWholeSetAndBumpsTheRevision() {
         declare("document", "read");
 
@@ -177,9 +175,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithoutIfMatchReturns428() {
         declare("document", "read");
 
@@ -196,9 +193,8 @@ class ActionCatalogueResourceTest {
 
     /** An unparseable If-Match is refused like an absent one: never a blind write. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithUnparseableIfMatchReturns428() {
         declare("document", "read");
 
@@ -215,9 +211,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithStaleIfMatchReturns412WithCurrentRevision() {
         declare("document", "read");
 
@@ -235,9 +230,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceUnknownEntryReturns404() {
         given().contentType(ContentType.JSON)
                 .header("If-Match", "\"1\"")
@@ -253,9 +247,8 @@ class ActionCatalogueResourceTest {
 
     /** A second write with the already-spent ETag loses: the lost-update guard (ADR-018). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void doubleReplaceWithTheSameIfMatchSecondGets412() {
         declare("document", "read");
 
@@ -284,9 +277,8 @@ class ActionCatalogueResourceTest {
     // ── DELETE ───────────────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deleteReturns204AndTheEntryIsGone() {
         declare("document", "read");
 
@@ -300,9 +292,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deleteWithoutIfMatchReturns428() {
         declare("document", "read");
 
@@ -314,9 +305,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deleteWithStaleIfMatchReturns412() {
         declare("document", "read");
 
@@ -330,9 +320,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deleteUnknownEntryReturns404() {
         given().header("If-Match", "\"1\"")
                 .when()
@@ -342,7 +331,7 @@ class ActionCatalogueResourceTest {
                 .body("code", equalTo("CATALOGUE_ENTRY_NOT_FOUND"));
     }
 
-    // ── Admin gate ───────────────────────────────────────────────────────────
+    // ── Control-plane gate (ADR-033) ───────────────────────────────────────────────────────────
 
     @Test
     void unauthenticatedRequestReturns401() {
@@ -351,13 +340,13 @@ class ActionCatalogueResourceTest {
 
     @Test
     @TestSecurity(user = "plain-user")
-    void listWithoutAdminMarkerReturns403() {
+    void listWithoutAuthorizationForTheAppReturns403() {
         given().when().get(CATALOGUE, APP).then().statusCode(403).body("code", equalTo("FORBIDDEN"));
     }
 
     @Test
     @TestSecurity(user = "plain-user")
-    void createWithoutAdminMarkerReturns403() {
+    void createWithoutAuthorizationForTheAppReturns403() {
         given().contentType(ContentType.JSON)
                 .body("""
                         {"resourceType": "document", "actions": ["read"]}
@@ -371,13 +360,13 @@ class ActionCatalogueResourceTest {
 
     @Test
     @TestSecurity(user = "plain-user")
-    void getEntryWithoutAdminMarkerReturns403() {
+    void getEntryWithoutAuthorizationForTheAppReturns403() {
         given().when().get(ENTRY, APP, "document").then().statusCode(403).body("code", equalTo("FORBIDDEN"));
     }
 
     @Test
     @TestSecurity(user = "plain-user")
-    void replaceWithoutAdminMarkerReturns403() {
+    void replaceWithoutAuthorizationForTheAppReturns403() {
         given().contentType(ContentType.JSON)
                 .header("If-Match", "\"1\"")
                 .body("""
@@ -392,7 +381,7 @@ class ActionCatalogueResourceTest {
 
     @Test
     @TestSecurity(user = "plain-user")
-    void deleteWithoutAdminMarkerReturns403() {
+    void deleteWithoutAuthorizationForTheAppReturns403() {
         given().header("If-Match", "\"1\"")
                 .when()
                 .delete(ENTRY, APP, "document")
@@ -404,9 +393,8 @@ class ActionCatalogueResourceTest {
     // ── Body validation ──────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithNullBodyReturns400() {
         given().contentType(ContentType.JSON)
                 .body("null")
@@ -418,9 +406,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithoutResourceTypeReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -434,9 +421,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithBlankResourceTypeReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -450,9 +436,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithoutActionsReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -466,9 +451,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithEmptyActionsReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -482,9 +466,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithBlankActionReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -498,9 +481,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithDuplicateActionReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -515,9 +497,8 @@ class ActionCatalogueResourceTest {
 
     /** '*' is the sugar the catalogue defines away; it can never be a catalogue action itself. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithWildcardActionReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -532,9 +513,8 @@ class ActionCatalogueResourceTest {
 
     /** ADR-026: the app is the path's; a body that also states it is rejected, not reconciled. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithAppInBodyReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -549,9 +529,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithNullBodyReturns400() {
         declare("document", "read");
 
@@ -566,9 +545,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithEmptyActionsReturns400() {
         declare("document", "read");
 
@@ -585,9 +563,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithWildcardActionReturns400() {
         declare("document", "read");
 
@@ -604,9 +581,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithDuplicateActionReturns400() {
         declare("document", "read");
 
@@ -623,9 +599,8 @@ class ActionCatalogueResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithBlankActionReturns400() {
         declare("document", "read");
 
@@ -649,9 +624,8 @@ class ActionCatalogueResourceTest {
      * nor a write in one app may reach the other.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void theSameResourceTypeInTwoAppsIsTwoIndependentEntries() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -704,9 +678,8 @@ class ActionCatalogueResourceTest {
 
     /** An entry of another app is invisible here, exactly as a policy of another app is. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void getEntryOfAnotherAppReturns404() {
         declare("document", "read");
 

@@ -21,11 +21,15 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
 import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
+import io.github.ricardoqmd.servicepolicy.persistence.AuditActor;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.http.ContentType;
 
 /**
@@ -42,6 +46,9 @@ import io.restassured.http.ContentType;
  */
 @QuarkusTest
 class EvaluatePolicyScenariosTest {
+
+    @Inject
+    ControlPlaneTestSupport controlPlane;
 
     private static final String APP = "test-app";
 
@@ -65,8 +72,9 @@ class EvaluatePolicyScenariosTest {
         // ADR-028: the seeded policy declares ["*"], which is expanded at create against this entry.
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
         // create (revision=0) then activate version 1 with ifMatch=0L (ADR-020).
-        lifecycleStore.create(APP, documentAccessPolicy(), "seed-subject", "seed");
-        lifecycleStore.activate(APP, "doc-access", 1, 0L, "seed-subject", "seed");
+        lifecycleStore.create(APP, documentAccessPolicy(), AuditActor.verified("seed-subject"), "seed");
+        lifecycleStore.activate(APP, "doc-access", 1, 0L, AuditActor.verified("seed-subject"), "seed");
+        controlPlane.installed();
     }
 
     @AfterEach
@@ -182,7 +190,7 @@ class EvaluatePolicyScenariosTest {
         // Reset to a clean slate with only an INACTIVE policy — deliberately skipping activate().
         headRepository.deleteAll();
         versionRepository.deleteAll();
-        lifecycleStore.create(APP, documentAccessPolicy(), "seed-subject", "seed");
+        lifecycleStore.create(APP, documentAccessPolicy(), AuditActor.verified("seed-subject"), "seed");
         // NOT activated: the evaluator must not see this policy.
 
         // This request WOULD be permitted by doc-access if it were active (subject is an assignee).
@@ -202,9 +210,8 @@ class EvaluatePolicyScenariosTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {"authz-admin"})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void evaluateDeniesAfterPolicyIsDeactivated() {
         // @BeforeEach seeded doc-access (create at revision=0, then activate -> revision=1).
         String etag = given().when()

@@ -20,4 +20,14 @@ public class StoredDocumentSchemaException extends RuntimeException {
         super("stored document " + collection + "/" + id + " carries " + marker + " " + found
                 + ", which this build does not recognise");
     }
+
+    /**
+     * A marker that is not an integer, read as stored rather than through the codec: the write condition
+     * refuses such a value (ADR-034 §10), and the refusal names what is actually there, with its type.
+     */
+    public StoredDocumentSchemaException(String collection, ObjectId id, String marker, Object found) {
+        super("stored document " + collection + "/" + id + " carries " + marker + " " + found + " ("
+                + (found == null ? "null" : found.getClass().getSimpleName())
+                + "), which this build does not recognise for writing");
+    }
 }

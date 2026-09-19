@@ -195,6 +195,97 @@ changing the REST layer or the port interface.
 
 ---
 
+## Control-plane authorization (ADR-033)
+
+The control plane — authoring, activating, deactivating and reading policies, simulating them,
+and administering an application's action catalogue and configuration — is authorized **per
+application, by this engine, with its own policy model**. There is no administrative role.
+
+```
+request ── /v1/apps/{app}/… ──► ControlPlaneGate.authorize(app, action)
+                                   │  app: the route's segment, as matched
+                                   │  caller: sub + validated token (nothing from the body)
+                                   ▼
+             installation marker? ─ no ─► permitted only for the bootstrap subject
+                                   │ yes
+                                   ▼
+   subject.attr.* ◄── token, through the claim mapping stored for the reserved application
+   policies       ◄── active policies of the reserved application, resourceType "policy"
+   resource.attr.app = app            action = policy:read|write|activate|deactivate
+                                   ▼
+                         deny-overrides decision ─► 403 FORBIDDEN (one fixed body) | proceed
+```
+
+**Provenance.** The subject of a control-plane decision is the caller itself, and its attributes
+come from its validated token. The entry points take the route's application, the action and the
+validated identity, and have no parameter that could carry a subject attribute; the
+caller-asserted channel of ADR-010 stays on `/evaluate`, where the caller asserts facts about a
+third party.
+
+**Two roles of the reserved application.** Its configuration holds the claim mapping every
+control-plane decision applies, and its policies are the control-plane policy set. It is never
+the application being decided about unless the route names it. Installation seeds it with the
+mapping from `service-policy.control-plane.subject-attributes.apps`, the catalogue of resource
+type `policy`, and the baseline `permit when resource.attr.app IN subject.attr.apps`. Its
+configuration cannot be created or deleted through the API, and a `PUT` that would leave its own
+caller without the reserved application is refused.
+
+**Finer grants.** They are policies in the reserved application, authored through the ordinary API.
+Under deny-overrides, every policy selected for a verb must permit it — a policy that matches no
+rule contributes its `defaultEffect` — so a grant that widens the baseline for one verb is written
+into the policy that governs that verb, for example by giving `read` its own policy.
+
+**Installation.** While no installation marker exists, only the bootstrap subject (a configured
+claim value) is accepted. Its first successful control-plane write records the marker, which
+nothing in the service deletes; installation mode is decided by the marker alone, never by the
+absence of policies. The marker also records **which application is reserved**, and that is what
+makes the identifier part of the installation rather than of the running configuration: a
+deployment configured with a different one does not start, and one already running when another
+instance closed installation denies every control-plane call from the marker read each decision
+already makes — so no configuration change can move the control plane onto another application's
+policies. Installation seeds only into an empty reserved application: a document there that
+installation did not write — recognised by the audit it records on its own documents, never by
+content — stops startup, and nothing is adopted. Seeding then converges on its end state, as every
+multi-document write here does (ADR-019): what an interrupted start left half-written is completed
+— a missing version 1 written, an inactive baseline activated — and the end state is read back; a
+start that does not reach it refuses. Every instance of the previous version must be stopped before
+this one starts: it honours the global marker and ignores the gate, so one left running could
+replace the policy set seeded here, and nothing in this service can stop it. Once installed, the
+stored claim mapping is the only source and its deployment property is ignored, with one warning if
+it differs from a usable stored claim path.
+
+**Startup refuses rather than warns** wherever the alternative is an installation nobody can
+administer, or one administered by something nobody chose: a blank reserved identifier; not
+installed and no claim path for `apps`; not installed and no bootstrap value; not installed and a
+reserved application that already holds foreign documents, which the refusal names; not installed
+and a seeding that did not reach its end state; a marker whose
+recorded reserved application differs from the configured one; a marker from which this build
+reads no identifier — the earlier shape, which predates the build, or one missing, malformed or of
+an unknown shape, each said as what it is; and an installed store whose reserved application holds
+no usable `apps` mapping. The one warning is the divergence above, where the service still works.
+
+**Denials and the merged view.** The gate's denial is one fixed `403` body, decided before anything
+about the route's application is read, so it cannot reveal whether the application exists. Two
+refusals with their own bodies come *after* the gate has permitted the call — creating or deleting
+the reserved application's configuration, and a simulated `request` for another subject without the
+delegation marker — and neither is a function of whether the route's application exists: the first
+depends only on the identifier the caller already holds, the second only on the body. The merged
+catalogue `GET /v1/policies` is scoped to the applications the caller may read before the query
+runs: totals and pages count only what is visible, and an empty scope is an empty `200`.
+
+**Audit.** A write may declare on whose behalf it is made with the body field `subject`. It
+authorizes nothing. Every control-plane write that **stores a document** records `createdBy` (the
+calling credential), `subject`, and `subjectProvenance` — `VERIFIED` when the identity is the
+token's own, `DECLARED` when the caller asserted it. A `DELETE` records nothing, because the
+document it would have been recorded on is gone. The documents installation seeds carry all three,
+with the installation identity and `VERIFIED`. That identity is installation's alone: a caller whose
+subject resolves to it is denied every control-plane call.
+
+The migration from the removed global marker is described in the README, under *Upgrading to
+0.6.0*.
+
+---
+
 ## Why this design
 
 Several alternatives were evaluated before settling on this architecture.

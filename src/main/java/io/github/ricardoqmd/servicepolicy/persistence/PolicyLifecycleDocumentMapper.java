@@ -11,10 +11,6 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
  */
 public class PolicyLifecycleDocumentMapper {
 
-    private static final String CREATED_BY = "createdBy";
-    private static final String CREATED_AT = "createdAt";
-    private static final String CHANGE_REASON = "changeReason";
-
     private final PolicyDocumentMapper policyMapper;
 
     public PolicyLifecycleDocumentMapper(PolicyDocumentMapper policyMapper) {
@@ -45,8 +41,8 @@ public class PolicyLifecycleDocumentMapper {
         return policyMapper.fromDocument(document.activeContent);
     }
 
-    public Document toAuditDocument(String createdBy, String createdAt, String changeReason) {
-        return new Document(CREATED_BY, createdBy).append(CREATED_AT, createdAt).append(CHANGE_REASON, changeReason);
+    public Document toAuditDocument(AuditActor actor, String changeReason) {
+        return AuditDocuments.of(actor).append(AuditDocuments.CHANGE_REASON, changeReason);
     }
 
     public PolicyVersionDocument toVersionDocument(
@@ -62,8 +58,13 @@ public class PolicyLifecycleDocumentMapper {
 
     private PolicyAudit audit(Document doc) {
         if (doc == null) {
-            return new PolicyAudit(null, null, null);
+            return new PolicyAudit(null, null, null, null, null);
         }
-        return new PolicyAudit(doc.getString(CREATED_BY), doc.getString(CREATED_AT), doc.getString(CHANGE_REASON));
+        return new PolicyAudit(
+                doc.getString(AuditDocuments.CREATED_BY),
+                doc.getString(AuditDocuments.CREATED_AT),
+                doc.getString(AuditDocuments.CHANGE_REASON),
+                doc.getString(AuditDocuments.SUBJECT),
+                AuditDocuments.provenanceOf(doc));
     }
 }

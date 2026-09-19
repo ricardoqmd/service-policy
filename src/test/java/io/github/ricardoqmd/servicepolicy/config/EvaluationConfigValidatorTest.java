@@ -61,6 +61,11 @@ class EvaluationConfigValidatorTest {
             public Evaluation evaluation() {
                 return () -> batchMaxSize;
             }
+
+            @Override
+            public ControlPlane controlPlane() {
+                return null;
+            }
         };
     }
 }

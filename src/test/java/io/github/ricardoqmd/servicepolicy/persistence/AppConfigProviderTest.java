@@ -89,7 +89,7 @@ class AppConfigProviderTest {
     void createThroughTheStoreInvalidatesImmediately() {
         assertTrue(provider.forApp(APP).isEmpty()); // warm the cache with an absence
 
-        store.create(APP, draft(), "tester");
+        store.create(APP, draft(), AuditActor.verified("tester"));
 
         AppConfig loaded = provider.forApp(APP).orElseThrow();
         assertEquals(1L, loaded.revision());
@@ -98,10 +98,10 @@ class AppConfigProviderTest {
 
     @Test
     void replaceThroughTheStoreInvalidatesImmediately() {
-        store.create(APP, draft(), "tester");
+        store.create(APP, draft(), AuditActor.verified("tester"));
         assertEquals(1L, provider.forApp(APP).orElseThrow().revision());
 
-        store.replace(APP, new AppConfigDraft(Map.of("dept", "department"), null), 1L, "tester");
+        store.replace(APP, new AppConfigDraft(Map.of("dept", "department"), null), 1L, AuditActor.verified("tester"));
 
         AppConfig loaded = provider.forApp(APP).orElseThrow();
         assertEquals(2L, loaded.revision());
@@ -111,7 +111,7 @@ class AppConfigProviderTest {
 
     @Test
     void deleteThroughTheStoreInvalidatesImmediately() {
-        store.create(APP, draft(), "tester");
+        store.create(APP, draft(), AuditActor.verified("tester"));
         assertTrue(provider.forApp(APP).isPresent());
 
         store.delete(APP, 1L);
@@ -122,8 +122,8 @@ class AppConfigProviderTest {
     /** Cache entries are per app: invalidating one must not disturb another's. */
     @Test
     void invalidationIsScopedToItsApp() {
-        store.create(APP, draft(), "tester");
-        store.create("other-provider-app", draft(), "tester");
+        store.create(APP, draft(), AuditActor.verified("tester"));
+        store.create("other-provider-app", draft(), AuditActor.verified("tester"));
         assertTrue(provider.forApp(APP).isPresent());
         assertTrue(provider.forApp("other-provider-app").isPresent());
 
@@ -137,7 +137,7 @@ class AppConfigProviderTest {
     /** A stored document with only one section maps back with the other left null, not empty. */
     @Test
     void anAbsentSectionStaysNull() {
-        store.create(APP, new AppConfigDraft(Map.of("rol", "realm_access.roles"), null), "tester");
+        store.create(APP, new AppConfigDraft(Map.of("rol", "realm_access.roles"), null), AuditActor.verified("tester"));
 
         Optional<AppConfig> loaded = provider.forApp(APP);
         assertTrue(loaded.isPresent());

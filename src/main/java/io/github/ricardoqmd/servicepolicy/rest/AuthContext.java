@@ -65,7 +65,7 @@ public class AuthContext {
     /**
      * Checks whether the caller holds the given authorization marker.
      *
-     * @param marker configured marker (admin or delegation).
+     * @param marker the configured marker (the delegation marker; there is no administrative one, ADR-033 §5).
      * @return {@code true} if the caller's token satisfies the marker condition.
      */
     public boolean has(ServicePolicyConfig.Marker marker) {

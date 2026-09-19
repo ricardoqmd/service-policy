@@ -20,11 +20,11 @@ import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
-import io.github.ricardoqmd.servicepolicy.config.ServicePolicyConfig;
+import io.github.ricardoqmd.servicepolicy.controlplane.ControlPlaneAction;
+import io.github.ricardoqmd.servicepolicy.controlplane.ControlPlaneDecision;
 import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueEntry;
 import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueStore;
 import io.github.ricardoqmd.servicepolicy.problem.CatalogueEntryNotFoundException;
-import io.github.ricardoqmd.servicepolicy.problem.ForbiddenProblemException;
 import io.github.ricardoqmd.servicepolicy.problem.InvalidRequestException;
 import io.github.ricardoqmd.servicepolicy.problem.PreconditionRequiredException;
 import io.quarkus.security.Authenticated;
@@ -36,8 +36,11 @@ import io.quarkus.security.Authenticated;
  * <p>The catalogue is administered, not deployed — a new application, or a new verb, must not
  * require redeploying the engine — so it is a first-class resource on the admin surface, keyed by
  * {@code (app, resourceType)} because verbs belong to a resource type rather than floating free at
- * app level. All operations require the admin marker (ADR-013 §4), and every route is nested under
- * its application (ADR-026): {@code app} comes from the path and must not appear in any body.
+ * app level. Every operation is authorized per application (ADR-033) — reads need {@code policy:read}
+ * and writes {@code policy:write} on the route's application — and every route is nested under its
+ * application (ADR-026): {@code app} comes from the path and must not appear in any body. A write may
+ * declare on whose behalf it is made with the body field {@code subject}, which authorizes nothing and is
+ * recorded in the audit (ADR-033 §4).
  *
  * <p>The catalogue is read at <em>authoring</em> only. {@code POST}/{@code PUT} of a policy expand
  * {@code ["*"]} against it and reject uncatalogued actions; {@code /evaluate} never touches it, so
@@ -57,26 +60,26 @@ public class ActionCatalogueResource {
     private static final String WILDCARD = "*";
 
     private final ActionCatalogueStore catalogueStore;
-    private final AuthContext authContext;
-    private final ServicePolicyConfig cfg;
+    private final ControlPlaneGate gate;
 
-    ActionCatalogueResource(ActionCatalogueStore catalogueStore, AuthContext authContext, ServicePolicyConfig cfg) {
+    ActionCatalogueResource(ActionCatalogueStore catalogueStore, ControlPlaneGate gate) {
         this.catalogueStore = catalogueStore;
-        this.authContext = authContext;
-        this.cfg = cfg;
+        this.gate = gate;
     }
 
     @POST
     @Operation(
             summary = "Declare the action catalogue of a resource type",
             description = "Creates the catalogue entry for one resource type in this app (ADR-028), at revision 1."
-                    + " Requires the admin marker. The body must NOT carry an 'app' field — it is determined"
+                    + " Requires policy:write on this app (ADR-033); otherwise 403 FORBIDDEN, which does not say"
+                    + " whether the app exists. The optional body field 'subject' declares on whose behalf the"
+                    + " write is made; it authorizes nothing and is recorded in the audit (ADR-033 §4). The body must NOT carry an 'app' field — it is determined"
                     + " by the path (ADR-026). 'actions' must be non-empty, without blanks or duplicates, and"
                     + " may not contain '*': the catalogue IS the explicit set that '*' expands to. Returns"
                     + " 400 on a malformed body, 409 CATALOGUE_ENTRY_ALREADY_EXISTS if the app already"
                     + " declares that resource type.")
     public Response create(@PathParam("app") String app, CatalogueEntryCreate body) {
-        requireAdmin();
+        ControlPlaneDecision decision = gate.authorize(app, ControlPlaneAction.WRITE);
 
         if (body == null) {
             throw new InvalidRequestException("request body must not be empty.");
@@ -87,7 +90,8 @@ public class ActionCatalogueResource {
         validateActions(body.actions());
 
         ActionCatalogueEntry entry =
-                catalogueStore.create(app, body.resourceType(), body.actions(), authContext.callerSubject());
+                catalogueStore.create(app, body.resourceType(), body.actions(), gate.actor(body.subject()));
+        gate.writeSucceeded(decision);
         return Response.status(Response.Status.CREATED)
                 .entity(view(entry))
                 .tag(etag(entry))
@@ -113,9 +117,10 @@ public class ActionCatalogueResource {
                     + " {\"data\": [...]} — the same envelope key the paginated listings use, without a"
                     + " 'pagination' block. Not paginated by design: a catalogue is a bounded vocabulary and"
                     + " its consumers — wildcard expansion and permission enumeration — need it whole. Returns"
-                    + " an empty list if the app declares no resource type.")
+                    + " an empty list if the app declares no resource type. Requires policy:read on this app"
+                    + " (ADR-033); otherwise 403 FORBIDDEN, which does not say whether the app exists.")
     public Response list(@PathParam("app") String app) {
-        requireAdmin();
+        gate.authorize(app, ControlPlaneAction.READ);
         List<CatalogueEntryView> entries = catalogueStore.list(app).stream()
                 .map(ActionCatalogueResource::view)
                 .toList();
@@ -128,9 +133,11 @@ public class ActionCatalogueResource {
             summary = "Get the action catalogue of a resource type",
             description = "Returns the entry for one resource type in this app, with a strong ETag equal to its"
                     + " current revision — the value to send back as If-Match when replacing or deleting it."
-                    + " Returns 404 CATALOGUE_ENTRY_NOT_FOUND if the app does not declare that resource type.")
+                    + " Returns 404 CATALOGUE_ENTRY_NOT_FOUND if the app does not declare that resource type."
+                    + " Requires policy:read on this app (ADR-033); otherwise 403 FORBIDDEN, which does not say"
+                    + " whether the app exists.")
     public Response get(@PathParam("app") String app, @PathParam("resourceType") String resourceType) {
-        requireAdmin();
+        gate.authorize(app, ControlPlaneAction.READ);
         ActionCatalogueEntry entry = catalogueStore
                 .find(app, resourceType)
                 .orElseThrow(() -> new CatalogueEntryNotFoundException(app, resourceType));
@@ -142,7 +149,10 @@ public class ActionCatalogueResource {
     @Operation(
             summary = "Replace the action set of a resource type",
             description = "Replaces the FULL action set of the entry (ADR-028) — this is a replace, not a merge."
-                    + " Requires the admin marker and an If-Match header with the current ETag. Adding actions"
+                    + " Requires policy:write on this app (ADR-033) — otherwise 403 FORBIDDEN, which does not say"
+                    + " whether the app exists — and an If-Match header with the current ETag. The optional"
+                    + " body field 'subject' declares on whose behalf the write is made; it authorizes nothing"
+                    + " and is recorded in the audit (ADR-033 §4). Adding actions"
                     + " is always safe: '*' was expanded at authoring, so no existing policy changes meaning."
                     + " Removing one is guarded — an action still named by an ACTIVE policy of this resource"
                     + " type returns 409 ACTION_IN_USE, listing the blocking policy ids. Returns 428 if"
@@ -153,7 +163,7 @@ public class ActionCatalogueResource {
             @PathParam("resourceType") String resourceType,
             @HeaderParam("If-Match") String ifMatch,
             CatalogueEntryReplace body) {
-        requireAdmin();
+        ControlPlaneDecision decision = gate.authorize(app, ControlPlaneAction.WRITE);
         long revision = parseIfMatch(ifMatch);
 
         if (body == null) {
@@ -162,7 +172,8 @@ public class ActionCatalogueResource {
         validateActions(body.actions());
 
         ActionCatalogueEntry entry =
-                catalogueStore.replace(app, resourceType, body.actions(), revision, authContext.callerSubject());
+                catalogueStore.replace(app, resourceType, body.actions(), revision, gate.actor(body.subject()));
+        gate.writeSucceeded(decision);
         return Response.ok(view(entry)).tag(etag(entry)).build();
     }
 
@@ -170,7 +181,8 @@ public class ActionCatalogueResource {
     @Path("/{resourceType}")
     @Operation(
             summary = "Delete the action catalogue of a resource type",
-            description = "Undeclares the resource type's vocabulary (ADR-028). Requires the admin marker and an"
+            description = "Undeclares the resource type's vocabulary (ADR-028). Requires policy:write on this app"
+                    + " (ADR-033) — otherwise 403 FORBIDDEN, which does not say whether the app exists — and an"
                     + " If-Match header with the current ETag. Deleting the entry removes every action at once,"
                     + " so it is blocked with 409 ACTION_IN_USE while ANY of them is named by an active policy."
                     + " Returns 428 if If-Match is absent or unparseable, 412 if stale, 404 if the entry is"
@@ -180,17 +192,12 @@ public class ActionCatalogueResource {
             @PathParam("app") String app,
             @PathParam("resourceType") String resourceType,
             @HeaderParam("If-Match") String ifMatch) {
-        requireAdmin();
+        ControlPlaneDecision decision = gate.authorize(app, ControlPlaneAction.WRITE);
         long revision = parseIfMatch(ifMatch);
 
         catalogueStore.delete(app, resourceType, revision);
+        gate.writeSucceeded(decision);
         return Response.noContent().build();
-    }
-
-    private void requireAdmin() {
-        if (!authContext.has(cfg.authz().admin())) {
-            throw new ForbiddenProblemException("admin marker required.");
-        }
     }
 
     /**

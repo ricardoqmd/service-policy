@@ -17,6 +17,9 @@ import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.http.ContentType;
 
 /**
@@ -26,7 +29,8 @@ import io.restassured.http.ContentType;
 @QuarkusTest
 class PolicyWriteResourceTest {
 
-    private static final String ADMIN = "authz-admin";
+    @Inject
+    ControlPlaneTestSupport controlPlane;
 
     private static final String APP = "test-app";
 
@@ -84,6 +88,7 @@ class PolicyWriteResourceTest {
         // 'read' before any of these writes can succeed — in both apps this suite touches.
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
         ActionCatalogueTestSupport.declare(catalogueRepository, "other-app", "document", "read");
+        controlPlane.installed();
     }
 
     @AfterEach
@@ -101,9 +106,8 @@ class PolicyWriteResourceTest {
     // ── POST create ──────────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createReturnsInactivePolicy() {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
@@ -123,9 +127,8 @@ class PolicyWriteResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithAppInBodyReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -154,9 +157,8 @@ class PolicyWriteResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createDuplicateReturns409() {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
@@ -176,9 +178,8 @@ class PolicyWriteResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createSamePolicyIdUnderDifferentAppSucceeds() {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
@@ -213,9 +214,8 @@ class PolicyWriteResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createSelfHealsOrphanHead() {
         PolicyHeadDocument orphan = new PolicyHeadDocument();
         orphan.policyId = "p-write";
@@ -242,9 +242,8 @@ class PolicyWriteResourceTest {
     // ── GET ETag ─────────────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void getByIdEmitsEtag() {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
@@ -264,9 +263,8 @@ class PolicyWriteResourceTest {
     // ── PUT append ───────────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void putAppendsVersionAndBumpsRevision() {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
@@ -301,9 +299,8 @@ class PolicyWriteResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void putWithoutIfMatchReturns428() {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
@@ -322,9 +319,8 @@ class PolicyWriteResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void putWithStaleIfMatchReturns412() {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
@@ -346,9 +342,8 @@ class PolicyWriteResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void putOnNonExistentPolicyReturns404() {
         given().contentType(ContentType.JSON)
                 .header("If-Match", "\"0\"")
@@ -361,9 +356,8 @@ class PolicyWriteResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void putWithInvalidBodyReturns400() {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
@@ -407,9 +401,8 @@ class PolicyWriteResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void putWithAppInContentReturns400() {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
@@ -453,9 +446,8 @@ class PolicyWriteResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void doubleAppendWithSameIfMatchSecondGets412() {
         given().contentType(ContentType.JSON)
                 .body(VALID_POLICY)
@@ -492,9 +484,8 @@ class PolicyWriteResourceTest {
     // ── problem+json content-type ─────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void errorResponsesCarryProblemJsonContentType() {
         given().when()
                 .get("/v1/apps/{app}/policies/ghost", APP)

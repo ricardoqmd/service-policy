@@ -31,6 +31,7 @@ import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.AppConfigDocument;
 import io.github.ricardoqmd.servicepolicy.persistence.AppConfigProvider;
 import io.github.ricardoqmd.servicepolicy.persistence.AppConfigRepository;
+import io.github.ricardoqmd.servicepolicy.persistence.AuditActor;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
@@ -243,8 +244,8 @@ class EnumerationClaimDrivenTest {
     }
 
     private void activate(Policy policy) {
-        lifecycleStore.create(APP, policy, "seed", null);
-        lifecycleStore.activate(APP, policy.id(), 1, 0L, "seed", null);
+        lifecycleStore.create(APP, policy, AuditActor.verified("seed"), null);
+        lifecycleStore.activate(APP, policy.id(), 1, 0L, AuditActor.verified("seed"), null);
     }
 
     private static Policy policy(String id, List<String> actions, Comparison permitWhen) {

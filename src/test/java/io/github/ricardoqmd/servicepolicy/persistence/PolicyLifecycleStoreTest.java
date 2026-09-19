@@ -202,8 +202,8 @@ class PolicyLifecycleStoreTest {
 
     @Test
     void samePolicyIdInTwoAppsYieldsTwoIndependentHeads() {
-        store.create(APP, policy("shared", 1), "tester", "in test-app");
-        store.create(OTHER_APP, policy("shared", 1), "tester", "in other-app");
+        store.create(APP, policy("shared", 1), AuditActor.verified("tester"), "in test-app");
+        store.create(OTHER_APP, policy("shared", 1), AuditActor.verified("tester"), "in other-app");
 
         assertTrue(store.headExists(APP, "shared"));
         assertTrue(store.headExists(OTHER_APP, "shared"));
@@ -218,7 +218,7 @@ class PolicyLifecycleStoreTest {
         assertEquals(1, store.countVersions(OTHER_APP, "shared"));
 
         // Activating one leaves the other untouched.
-        store.activate(APP, "shared", 1, inApp.revision(), "tester", "go live");
+        store.activate(APP, "shared", 1, inApp.revision(), AuditActor.verified("tester"), "go live");
 
         assertEquals(1, store.findHead(APP, "shared").orElseThrow().activeVersion());
         PolicyHead untouched = store.findHead(OTHER_APP, "shared").orElseThrow();
@@ -230,7 +230,7 @@ class PolicyLifecycleStoreTest {
 
     @Test
     void createLeavesActiveVersionAndActiveContentNull() {
-        store.create(APP, policy("p-inv", 1), "tester", "invariant test");
+        store.create(APP, policy("p-inv", 1), AuditActor.verified("tester"), "invariant test");
 
         PolicyHeadDocument head =
                 headRepository.findByAppAndPolicyId(APP, "p-inv").orElseThrow();
@@ -240,13 +240,13 @@ class PolicyLifecycleStoreTest {
 
     @Test
     void appendDoesNotChangeActiveVersionOrActiveContent() {
-        store.create(APP, policy("p-inv", 1), "tester", null);
+        store.create(APP, policy("p-inv", 1), AuditActor.verified("tester"), null);
 
         PolicyHeadDocument headAfterCreate =
                 headRepository.findByAppAndPolicyId(APP, "p-inv").orElseThrow();
         long revision = headAfterCreate.revision;
 
-        store.append(APP, "p-inv", policy("p-inv", 2), revision, "tester", null);
+        store.append(APP, "p-inv", policy("p-inv", 2), revision, AuditActor.verified("tester"), null);
 
         PolicyHeadDocument headAfterAppend =
                 headRepository.findByAppAndPolicyId(APP, "p-inv").orElseThrow();
@@ -256,10 +256,10 @@ class PolicyLifecycleStoreTest {
 
     @Test
     void activateSetsActiveVersionAndActiveContentVerbatim() {
-        store.create(APP, policy("p-inv", 1), "tester", null);
+        store.create(APP, policy("p-inv", 1), AuditActor.verified("tester"), null);
 
         long revision = headRepository.findByAppAndPolicyId(APP, "p-inv").orElseThrow().revision;
-        PolicyHead head = store.activate(APP, "p-inv", 1, revision, "tester", "go live");
+        PolicyHead head = store.activate(APP, "p-inv", 1, revision, AuditActor.verified("tester"), "go live");
 
         assertEquals(1, head.activeVersion());
         assertNotNull(head.activeContent());
@@ -276,11 +276,12 @@ class PolicyLifecycleStoreTest {
 
     @Test
     void deactivateClearsActiveVersionAndActiveContent() {
-        store.create(APP, policy("p-inv", 1), "tester", null);
+        store.create(APP, policy("p-inv", 1), AuditActor.verified("tester"), null);
         long rev0 = headRepository.findByAppAndPolicyId(APP, "p-inv").orElseThrow().revision;
 
-        PolicyHead activated = store.activate(APP, "p-inv", 1, rev0, "tester", null);
-        PolicyHead deactivated = store.deactivate(APP, "p-inv", activated.revision(), "tester", "retiring");
+        PolicyHead activated = store.activate(APP, "p-inv", 1, rev0, AuditActor.verified("tester"), null);
+        PolicyHead deactivated =
+                store.deactivate(APP, "p-inv", activated.revision(), AuditActor.verified("tester"), "retiring");
 
         assertNull(deactivated.activeVersion());
         assertNull(deactivated.activeContent());

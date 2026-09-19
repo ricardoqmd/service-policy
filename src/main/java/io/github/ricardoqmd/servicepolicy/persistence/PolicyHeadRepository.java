@@ -1,6 +1,7 @@
 package io.github.ricardoqmd.servicepolicy.persistence;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,6 +21,7 @@ public class PolicyHeadRepository implements PanacheMongoRepository<PolicyHeadDo
     private static final String ACTIVE_CLAUSE = "'activeVersion': {$ne: null}";
     private static final String INACTIVE_CLAUSE = "'activeVersion': null";
     private static final String APP_CLAUSE = "'app': ?1";
+    private static final String APPS_CLAUSE = "'app': {$in: ?1}";
     private static final Sort BY_POLICY_ID = Sort.ascending("policyId");
 
     /**
@@ -37,6 +39,29 @@ public class PolicyHeadRepository implements PanacheMongoRepository<PolicyHeadDo
             return count();
         }
         return app == null ? count(filter) : count(filter, app);
+    }
+
+    /**
+     * @return heads of the given applications only, filtered by lifecycle status, ordered by policyId, for
+     *     the requested zero-based page. The scope is in the query, so paging and counting see the same set.
+     */
+    public List<PolicyHeadDocument> findHeadsIn(Collection<String> apps, HeadStatus status, int pageIndex, int size) {
+        return find(scopedFilter(status), BY_POLICY_ID, List.copyOf(apps))
+                .page(Page.of(pageIndex, size))
+                .list();
+    }
+
+    /** @return the number of heads matching the same scope and status as {@link #findHeadsIn}. */
+    public long countHeadsIn(Collection<String> apps, HeadStatus status) {
+        return count(scopedFilter(status), List.copyOf(apps));
+    }
+
+    private static String scopedFilter(HeadStatus status) {
+        return switch (status) {
+            case ACTIVE -> "{" + ACTIVE_CLAUSE + ", " + APPS_CLAUSE + "}";
+            case INACTIVE -> "{" + INACTIVE_CLAUSE + ", " + APPS_CLAUSE + "}";
+            case ALL -> "{" + APPS_CLAUSE + "}";
+        };
     }
 
     private PanacheQuery<PolicyHeadDocument> headQuery(String app, HeadStatus status) {

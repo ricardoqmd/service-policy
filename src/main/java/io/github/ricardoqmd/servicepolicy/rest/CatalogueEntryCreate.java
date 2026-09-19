@@ -13,5 +13,7 @@ import java.util.List;
  * @param actions      the action tokens that exist for it; required, non-empty, no blanks, no
  *                     duplicates, and never the literal {@code "*"} — the catalogue is the explicit
  *                     set that {@code "*"} expands to, so it cannot contain it.
+ * @param subject      optional declaration of on whose behalf the write is made (ADR-033 §4). It confers
+ *                     no authority; it changes only what the audit records.
  */
-public record CatalogueEntryCreate(String resourceType, List<String> actions) {}
+public record CatalogueEntryCreate(String resourceType, List<String> actions, String subject) {}
