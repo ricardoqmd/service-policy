@@ -20,7 +20,10 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
  * {@code POST /v1/apps/&#123;app&#125;/evaluate}. A body carrying an {@code app} field is rejected
  * with 400, so route and payload can never disagree.
  *
- * @param action            Action to authorize in {@code resource:verb} format (e.g. {@code document:read}).
+ * @param action            Action to authorize, as {@code verb} or {@code type:verb} (e.g. {@code document:read}),
+ *                          split at the first colon. A prefix, when present, must be {@code resource.type}
+ *                          exactly, or the request is refused with 400 (ADR-036) —
+ *                          unless it is a batch item whose {@code resource.type} is absent or blank.
  * @param resource          Target resource being accessed.
  * @param context           Optional runtime context attributes (e.g. {@code {"emergency": true}}).
  * @param subjectAttributes Optional non-identity subject attributes asserted by the caller (e.g. {@code {"area": "A"}}).
@@ -29,7 +32,13 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
  */
 @Schema(description = "Authorization evaluation request from a PEP.")
 public record EvaluationRequest(
-        @Schema(required = true, description = "Action in 'resource:verb' format, e.g. 'document:read'.")
+        @Schema(
+                required = true,
+                description = "Action as 'verb' or 'type:verb', split at the first colon, e.g. 'document:read'."
+                        + " A prefix, when present, must be resource.type exactly; otherwise 400"
+                        + " ACTION_RESOURCE_TYPE_MISMATCH (ADR-036). A blank verb after the colon is 400"
+                        + " BAD_REQUEST instead, and a batch item whose resource.type is absent or blank is"
+                        + " not checked.")
         String action,
 
         @Schema(required = true, description = "Target resource being accessed.")

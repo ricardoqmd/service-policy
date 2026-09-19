@@ -220,6 +220,9 @@ Content-Type: application/json
 ### The candidate's "*" is expanded before evaluation, so what you simulate is what
 ### would be persisted. An uncatalogued action here is the same 400 INVALID_POLICY as
 ### on create — the simulator never decides on a draft you could not save.
+### The "request" obeys the same action rule as /evaluate (ADR-036): its prefix, when
+### present, must be its resource.type — "document:read" on a "payment" is 400
+### ACTION_RESOURCE_TYPE_MISMATCH, refused before the draft is validated or evaluated.
 
 
 ### ============================================================================

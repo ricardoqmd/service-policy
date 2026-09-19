@@ -95,8 +95,12 @@ public class SimulationResource {
                     + " uncatalogued action is likewise a 400 INVALID_POLICY, so what is simulated is what"
                     + " would be persisted. Neither 'policy' nor 'request' may carry"
                     + " 'app' (ADR-026): it is the path's — a 'policy' that does returns 400 INVALID_POLICY,"
-                    + " a 'request' that does returns 400 BAD_REQUEST. Returns the same 200 Decision as"
-                    + " /evaluate.")
+                    + " a 'request' that does returns 400 BAD_REQUEST. The 'request' action obeys the same"
+                    + " rule as on /evaluate (ADR-036): when it carries a 'type:' prefix, the prefix must be"
+                    + " the request's 'resource.type', or it is refused with 400 ACTION_RESOURCE_TYPE_MISMATCH"
+                    + " before the candidate is validated or anything is evaluated; a blank verb after the"
+                    + " colon is 400 BAD_REQUEST whatever the prefix. Returns the same 200"
+                    + " Decision as /evaluate.")
     public Response simulate(@PathParam("app") String app, SimulationRequest body) {
         gate.authorize(app, ControlPlaneAction.READ);
 
@@ -115,6 +119,9 @@ public class SimulationResource {
                 || request.resource().type().isBlank()) {
             throw new InvalidRequestException("resource.type must not be blank.");
         }
+        // Before the candidate is parsed or the catalogue read: authoring is where a copied action is
+        // most likely to be wrong, and the author should learn it here rather than at enforcement (ADR-036).
+        ActionAgreement.check(request);
 
         // Validate the candidate exactly as create/append do (ADR-027): the simulator never evaluates
         // a document that could not have been created. A body-carried 'app' (ADR-026) or a bad operand
