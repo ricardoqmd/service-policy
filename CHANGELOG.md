@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/ricardoqmd/service-policy/compare/v0.6.0...v0.6.1) (2026-09-19)
+
+
+### Bug Fixes
+
+* **evaluate:** refuse an action whose prefix disagrees with the resource type ([#210](https://github.com/ricardoqmd/service-policy/issues/210)) ([c3554fa](https://github.com/ricardoqmd/service-policy/commit/c3554fa206684f41f94c9552791fc57a6e92664d))
+
 ## [0.6.0](https://github.com/ricardoqmd/service-policy/compare/v0.5.4...v0.6.0) (2026-09-19)
 
 
