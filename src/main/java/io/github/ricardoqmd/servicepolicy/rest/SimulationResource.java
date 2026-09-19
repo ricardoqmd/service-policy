@@ -13,7 +13,7 @@ import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
-import io.github.ricardoqmd.servicepolicy.config.ServicePolicyConfig;
+import io.github.ricardoqmd.servicepolicy.controlplane.ControlPlaneAction;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.evaluation.EvaluationRequest;
 import io.github.ricardoqmd.servicepolicy.evaluation.PolicyEvaluator;
@@ -21,7 +21,6 @@ import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueResolver;
 import io.github.ricardoqmd.servicepolicy.persistence.ConditionDocumentMapper;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyDocumentException;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyDocumentMapper;
-import io.github.ricardoqmd.servicepolicy.problem.ForbiddenProblemException;
 import io.github.ricardoqmd.servicepolicy.problem.InvalidRequestException;
 import io.github.ricardoqmd.servicepolicy.problem.PolicyValidationException;
 import io.github.ricardoqmd.servicepolicy.problem.ProblemDetail;
@@ -40,8 +39,12 @@ import io.quarkus.security.Authenticated;
  * the authoring/read machinery {@link PolicyResource} carries — keeping them apart avoids mixing the
  * data-plane engine into the authoring resource.
  *
- * <p>Admin-gated (ADR-013): it is an administration tool, so it checks the admin marker rather than
- * the ordinary evaluation gate. A non-admin caller gets 403.
+ * <p>Authorized as a control-plane read (ADR-033): it is an administration tool, so it asks the
+ * {@link ControlPlaneGate} for {@code policy:read} on the route's application rather than applying the
+ * ordinary evaluation gate. Read, because it writes nothing and what it discloses — the application's action
+ * catalogue, through the resolution below — is what a read of that application already shows. A caller
+ * without it gets 403, which does not say whether the application exists. The {@code subjectAttributes} of
+ * the simulated {@code request} are data for the simulation and never reach that decision.
  *
  * <p>The candidate {@code policy} is validated exactly as on create — through the same
  * {@link PolicyDocumentMapper#fromDocument} path, then the same
@@ -65,26 +68,27 @@ public class SimulationResource {
     private final PolicyEvaluator evaluator;
     private final ActionCatalogueResolver catalogueResolver;
     private final AuthContext authContext;
-    private final ServicePolicyConfig cfg;
+    private final ControlPlaneGate gate;
     private final PolicyDocumentMapper policyMapper = new PolicyDocumentMapper(new ConditionDocumentMapper());
 
     SimulationResource(
             PolicyEvaluator evaluator,
             ActionCatalogueResolver catalogueResolver,
             AuthContext authContext,
-            ServicePolicyConfig cfg) {
+            ControlPlaneGate gate) {
         this.evaluator = evaluator;
         this.catalogueResolver = catalogueResolver;
         this.authContext = authContext;
-        this.cfg = cfg;
+        this.gate = gate;
     }
 
     @POST
     @Operation(
             summary = "Simulate a decision against an unsaved policy document",
             description = "Runs the decision engine against a policy document supplied in the request, without"
-                    + " persisting anything and without touching active state (ADR-027). Requires the admin"
-                    + " marker (ADR-013); 403 otherwise. The candidate 'policy' is validated exactly as on"
+                    + " persisting anything and without touching active state (ADR-027). Requires policy:read"
+                    + " on this app (ADR-033); otherwise 403 FORBIDDEN, which does not say whether the app"
+                    + " exists. The candidate 'policy' is validated exactly as on"
                     + " create — a malformed document or bad operand type (ADR-023) is rejected with 400"
                     + " INVALID_POLICY before any evaluation runs, and its 'actions' are resolved against the"
                     + " app's action catalogue (ADR-028): ['*'] is expanded to the declared vocabulary and an"
@@ -94,7 +98,7 @@ public class SimulationResource {
                     + " a 'request' that does returns 400 BAD_REQUEST. Returns the same 200 Decision as"
                     + " /evaluate.")
     public Response simulate(@PathParam("app") String app, SimulationRequest body) {
-        requireAdmin();
+        gate.authorize(app, ControlPlaneAction.READ);
 
         if (body == null || body.policy() == null || body.policy().isEmpty()) {
             throw new InvalidRequestException("request body 'policy' must not be empty.");
@@ -130,11 +134,5 @@ public class SimulationResource {
         // App comes from the path (ADR-026); subject from the JWT. Zero effect — pure (candidate, request).
         String subject = authContext.resolveEffectiveSubject(request.subject());
         return Response.ok(evaluator.simulate(app, subject, request, candidate)).build();
-    }
-
-    private void requireAdmin() {
-        if (!authContext.has(cfg.authz().admin())) {
-            throw new ForbiddenProblemException("admin marker required.");
-        }
     }
 }

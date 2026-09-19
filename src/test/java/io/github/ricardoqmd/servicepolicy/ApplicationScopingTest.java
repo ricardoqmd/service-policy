@@ -23,12 +23,16 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
 import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
+import io.github.ricardoqmd.servicepolicy.persistence.AuditActor;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadDocument;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.http.ContentType;
 
 /**
@@ -43,7 +47,8 @@ import io.restassured.http.ContentType;
 @QuarkusTest
 class ApplicationScopingTest {
 
-    private static final String ADMIN = "authz-admin";
+    @Inject
+    ControlPlaneTestSupport controlPlane;
 
     @Inject
     PolicyLifecycleStore lifecycleStore;
@@ -68,6 +73,7 @@ class ApplicationScopingTest {
             ActionCatalogueTestSupport.declare(catalogueRepository, app, "resource", "read");
             ActionCatalogueTestSupport.declare(catalogueRepository, app, "other", "read");
         }
+        controlPlane.installed();
     }
 
     @AfterEach
@@ -100,8 +106,8 @@ class ApplicationScopingTest {
                                 Operator.IN,
                                 new AttributeRef("subject.id"),
                                 new AttributeRef("resource.attr.assignees")))));
-        lifecycleStore.create("app-a", policyA, "seed", null);
-        lifecycleStore.activate("app-a", "iso-policy-a", 1, 0L, "seed", null);
+        lifecycleStore.create("app-a", policyA, AuditActor.verified("seed"), null);
+        lifecycleStore.activate("app-a", "iso-policy-a", 1, 0L, AuditActor.verified("seed"), null);
 
         Policy policyB = new Policy(
                 "iso-policy-b",
@@ -115,8 +121,8 @@ class ApplicationScopingTest {
                         Effect.PERMIT,
                         new Comparison(
                                 Operator.EQ, new AttributeRef("resource.attr.clearanceLevel"), new Literal(5)))));
-        lifecycleStore.create("app-b", policyB, "seed", null);
-        lifecycleStore.activate("app-b", "iso-policy-b", 1, 0L, "seed", null);
+        lifecycleStore.create("app-b", policyB, AuditActor.verified("seed"), null);
+        lifecycleStore.activate("app-b", "iso-policy-b", 1, 0L, AuditActor.verified("seed"), null);
 
         // R_a: assignees=["test-user"], no clearanceLevel → only app-a's rule fires
         given().contentType(ContentType.JSON)
@@ -201,9 +207,8 @@ class ApplicationScopingTest {
     // ── Authoring guards: the app lives in the path, never in the body ────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithoutAppInBodySucceeds() {
         // ADR-026 inversion of the old 'createWithoutAppReturns400': a document with no 'app' is
         // now the ONLY valid form — the app comes from the path.
@@ -232,9 +237,8 @@ class ApplicationScopingTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithAppInBodyReturns400() {
         // The path is the single source of the scope: a body that also states an app is rejected
         // rather than reconciled, so route and payload can never disagree.
@@ -279,9 +283,8 @@ class ApplicationScopingTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void appendWithAppInContentReturns400() {
         // Create a policy under app-a, then try to append a version whose content carries an app.
         given().contentType(ContentType.JSON)
@@ -332,9 +335,8 @@ class ApplicationScopingTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void appendUnderAnotherAppDoesNotReachTheOriginalPolicy() {
         // The ADR-024 rule "a version cannot change the policy's app" survives structurally: the
         // head is addressed by (app, policyId) from the path, so appending "under app-b" simply
@@ -397,9 +399,8 @@ class ApplicationScopingTest {
     // ── Composite identity: the same policyId in two apps is two policies ─────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void samePolicyIdInAnotherAppIsCreatedNotRejected() {
         // ADR-026 REVERSAL of the old 'createWithMismatchedAppOnOrphanHeadReturns400': claiming a
         // policyId that already exists in ANOTHER app used to be a 400 INVALID_POLICY ("app is
@@ -456,9 +457,8 @@ class ApplicationScopingTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void orphanHeadInAnotherAppDoesNotBlockCreate() {
         // Simulate a partially-failed prior create in app-a: a head with no version. Under ADR-024
         // this made the same policyId unclaimable in app-b (400 INVALID_POLICY). Under ADR-026 the
@@ -498,9 +498,8 @@ class ApplicationScopingTest {
     // ── List scoping ──────────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void catalogueFiltersByApp() {
         // '?app=' survives only on the cross-app catalogue (ADR-026 §3), where it is a genuine
         // optional filter over a collection that spans apps.
@@ -532,9 +531,8 @@ class ApplicationScopingTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void nestedListIsScopedToItsApp() {
         // On the nested route the app is an identity coordinate, not a filter: the listing is
         // scoped by the path alone.
@@ -573,7 +571,7 @@ class ApplicationScopingTest {
                 : List.of();
         Policy policy = new Policy(
                 policyId, 1, resourceType, List.of("*"), CombiningAlgorithm.DENY_OVERRIDES, defaultEffect, rules);
-        lifecycleStore.create(app, policy, "seed", null);
-        lifecycleStore.activate(app, policyId, 1, 0L, "seed", null);
+        lifecycleStore.create(app, policy, AuditActor.verified("seed"), null);
+        lifecycleStore.activate(app, policyId, 1, 0L, AuditActor.verified("seed"), null);
     }
 }

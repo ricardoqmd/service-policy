@@ -32,6 +32,7 @@ import io.github.ricardoqmd.servicepolicy.persistence.AppConfigDraft;
 import io.github.ricardoqmd.servicepolicy.persistence.AppConfigProvider;
 import io.github.ricardoqmd.servicepolicy.persistence.AppConfigRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.AppConfigStore;
+import io.github.ricardoqmd.servicepolicy.persistence.AuditActor;
 import io.github.ricardoqmd.servicepolicy.persistence.ConditionDocumentMapper;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyDocumentMapper;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
@@ -39,6 +40,9 @@ import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.http.ContentType;
 import io.restassured.path.json.JsonPath;
 
@@ -58,7 +62,9 @@ import io.restassured.path.json.JsonPath;
 @QuarkusTest
 class StoredDocumentSchemaResourceTest {
 
-    private static final String ADMIN = "authz-admin";
+    @Inject
+    ControlPlaneTestSupport controlPlane;
+
     private static final String APP = "schema-api";
     private static final String POLICIES = "/v1/apps/" + APP + "/policies";
     private static final int UNKNOWN = 999;
@@ -101,6 +107,7 @@ class StoredDocumentSchemaResourceTest {
     @BeforeEach
     void clean() {
         wipe();
+        controlPlane.installed();
     }
 
     @AfterEach
@@ -115,9 +122,8 @@ class StoredDocumentSchemaResourceTest {
     // ── The marker does not reach the wire ──────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void aPolicyHeadIsServedWithoutEitherMarker() {
         activePolicy("p-wire");
 
@@ -133,9 +139,8 @@ class StoredDocumentSchemaResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void thePolicyListsAreServedWithoutEitherMarker() {
         activePolicy("p-wire");
 
@@ -157,9 +162,8 @@ class StoredDocumentSchemaResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void aPolicyVersionIsServedWithoutTheMarker() {
         activePolicy("p-wire");
 
@@ -191,16 +195,15 @@ class StoredDocumentSchemaResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void aConfigurationIsServedWithoutTheMarker() {
         configStore.create(
                 APP,
                 new AppConfigDraft(
                         Map.of("rol", "realm_access.roles"),
                         new AppConfigDraft.PipDraft("https://backend/subjects/{sub}", 500, 300, "cred-ref")),
-                "tester");
+                AuditActor.verified("tester"));
 
         JsonPath config = given().when()
                 .get("/v1/apps/" + APP + "/configuration")
@@ -218,11 +221,10 @@ class StoredDocumentSchemaResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void aCatalogueEntryIsServedWithoutTheMarker() {
-        catalogueStore.create(APP, "invoice", List.of("read", "approve"), "tester");
+        catalogueStore.create(APP, "invoice", List.of("read", "approve"), AuditActor.verified("tester"));
         String catalogue = "/v1/apps/" + APP + "/action-catalogue";
 
         JsonPath one = given().when()
@@ -257,9 +259,8 @@ class StoredDocumentSchemaResourceTest {
     // ── An unknown marker fails the request: status only ─────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void aHeadWithAnUnknownMarkerFailsTheRead() {
         collection("policy_heads").insertOne(head("p-x", 1, policy("p-x", 1)).append("schemaVersion", UNKNOWN));
 
@@ -267,9 +268,8 @@ class StoredDocumentSchemaResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void aVersionWithAnUnknownMarkerFailsTheRead() {
         collection("policy_heads").insertOne(head("p-x", null, null));
         collection("policy_versions")
@@ -284,9 +284,8 @@ class StoredDocumentSchemaResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void aConfigurationWithAnUnknownMarkerFailsTheRead() {
         collection("app_configs")
                 .insertOne(new Document("app", APP)
@@ -299,9 +298,8 @@ class StoredDocumentSchemaResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void aCatalogueEntryWithAnUnknownMarkerFailsTheRead() {
         collection("action_catalogue")
                 .insertOne(new Document("app", APP)
@@ -324,9 +322,8 @@ class StoredDocumentSchemaResourceTest {
      * {@code If-Match}.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void anAppendToAHeadOfAnUnknownShapeIsRefusedAndWritesNothing() {
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
         collection("policy_heads").insertOne(head("p-x", null, null).append("schemaVersion", UNKNOWN));
@@ -340,10 +337,12 @@ class StoredDocumentSchemaResourceTest {
                     .then()
                     .statusCode(500);
 
-            Document stored = collection("policy_heads").find().first();
+            Document stored =
+                    collection("policy_heads").find(new Document("app", APP)).first();
             assertEquals(1L, stored.get("revision"), "attempt " + attempt);
             assertEquals(UNKNOWN, stored.get("schemaVersion"), "attempt " + attempt);
-            assertEquals(0, collection("policy_versions").countDocuments(), "attempt " + attempt);
+            assertEquals(
+                    0, collection("policy_versions").countDocuments(new Document("app", APP)), "attempt " + attempt);
         }
     }
 
@@ -354,9 +353,8 @@ class StoredDocumentSchemaResourceTest {
      * interprets no content, and with that revision the activation that replaces the content is reachable.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void aClientCanLearnTheRevisionOfAHeadWhoseContentItCannotReadAndActivateOverIt() {
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
         collection("policy_heads")
@@ -426,8 +424,8 @@ class StoredDocumentSchemaResourceTest {
     /** Created and activated through the store — the write path the API uses — so it carries markers. */
     private void activePolicy(String policyId) {
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
-        policyStore.create(APP, policy(policyId, 1), "tester", "first");
-        policyStore.activate(APP, policyId, 1, 0L, "tester", "live");
+        policyStore.create(APP, policy(policyId, 1), AuditActor.verified("tester"), "first");
+        policyStore.activate(APP, policyId, 1, 0L, AuditActor.verified("tester"), "live");
     }
 
     private MongoCollection<Document> collection(String name) {

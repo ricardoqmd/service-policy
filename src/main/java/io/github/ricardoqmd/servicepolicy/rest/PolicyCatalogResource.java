@@ -1,6 +1,7 @@
 package io.github.ricardoqmd.servicepolicy.rest;
 
 import java.util.List;
+import java.util.Set;
 
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
@@ -15,11 +16,10 @@ import jakarta.ws.rs.core.UriInfo;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
-import io.github.ricardoqmd.servicepolicy.config.ServicePolicyConfig;
+import io.github.ricardoqmd.servicepolicy.controlplane.ControlPlaneScope;
 import io.github.ricardoqmd.servicepolicy.domain.policy.HeadStatus;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHead;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
-import io.github.ricardoqmd.servicepolicy.problem.ForbiddenProblemException;
 import io.github.ricardoqmd.servicepolicy.problem.InvalidRequestException;
 import io.quarkus.security.Authenticated;
 
@@ -34,6 +34,12 @@ import io.quarkus.security.Authenticated;
  * <p>This is the only place where {@code ?app=} survives as a filter (ADR-024 §5): here the app is a
  * genuine optional filter over a cross-app collection, not the identity coordinate it is on the
  * nested routes. It composes with {@code ?status=} (ADR-025) as an AND.
+ *
+ * <p><strong>Scoped before the query (ADR-033 §2).</strong> The rows are those of the applications the caller
+ * may read, and that scope is part of the query rather than a filter over its page — so the reported total
+ * and the page boundaries are those of what the caller can see. An empty scope is an empty page with
+ * {@code 200}, never {@code 403}, which would itself disclose that other applications exist; and
+ * {@code ?app=} naming an application outside the scope answers exactly as one that does not exist.
  */
 @Path("/v1/policies")
 @Produces(MediaType.APPLICATION_JSON)
@@ -44,21 +50,23 @@ public class PolicyCatalogResource {
     private static final int MAX_PAGE_SIZE = 100;
 
     private final PolicyLifecycleStore lifecycleStore;
-    private final AuthContext authContext;
-    private final ServicePolicyConfig cfg;
+    private final ControlPlaneGate gate;
     private final PolicyReadMapper readMapper = new PolicyReadMapper();
 
-    PolicyCatalogResource(PolicyLifecycleStore lifecycleStore, AuthContext authContext, ServicePolicyConfig cfg) {
+    PolicyCatalogResource(PolicyLifecycleStore lifecycleStore, ControlPlaneGate gate) {
         this.lifecycleStore = lifecycleStore;
-        this.authContext = authContext;
-        this.cfg = cfg;
+        this.gate = gate;
     }
 
     @GET
     @Operation(
             summary = "List policy heads across all applications",
-            description = "Administrative cross-app catalogue (ADR-026): returns policy heads of every"
-                    + " application as a paginated collection (ADR-017). Read-only — writes and per-app"
+            description = "Administrative cross-app catalogue (ADR-026): returns the policy heads of every"
+                    + " application the caller may read (policy:read, ADR-033) as a paginated collection"
+                    + " (ADR-017). The scope is applied before the query, so 'totalElements' and the pages"
+                    + " count only what is visible; a caller who may read no application gets 200 with an"
+                    + " empty page, and '?app=' naming an application outside the scope answers exactly as"
+                    + " one that does not exist. Read-only — writes and per-app"
                     + " reads live under /v1/apps/{app}/policies. Optional filters, combined with AND:"
                     + " '?app=' scopes to one application, '?status=' filters by lifecycle state"
                     + " ('active', 'inactive' or 'all' — the default). An unknown 'status' returns 400.")
@@ -69,12 +77,22 @@ public class PolicyCatalogResource {
             @QueryParam("app") String app,
             @QueryParam("status") String status,
             @Context UriInfo uriInfo) {
-        requireAdmin();
         validatePaging(page, size);
         HeadStatus headStatus = parseStatus(status, uriInfo);
+        ControlPlaneScope scope = gate.readableApps();
 
-        long total = lifecycleStore.countHeads(app, headStatus);
-        List<PolicyHead> heads = lifecycleStore.findHeads(app, headStatus, page - 1, size);
+        long total;
+        List<PolicyHead> heads;
+        if (scope.unrestricted()) {
+            total = lifecycleStore.countHeads(app, headStatus);
+            heads = lifecycleStore.findHeads(app, headStatus, page - 1, size);
+        } else {
+            // The scope narrows the query; ?app= narrows the scope. Outside it, the set is empty — the
+            // same set an application that does not exist yields.
+            Set<String> apps = app == null ? scope.apps() : scope.includes(app) ? Set.of(app) : Set.of();
+            total = apps.isEmpty() ? 0 : lifecycleStore.countHeadsIn(apps, headStatus);
+            heads = apps.isEmpty() ? List.of() : lifecycleStore.findHeadsIn(apps, headStatus, page - 1, size);
+        }
         Paginated.Pagination pagination = Paginated.Pagination.of(page, size, total);
 
         if (isFull(view)) {
@@ -85,12 +103,6 @@ public class PolicyCatalogResource {
         return Response.ok(new Paginated<>(
                         heads.stream().map(readMapper::headSummary).toList(), pagination))
                 .build();
-    }
-
-    private void requireAdmin() {
-        if (!authContext.has(cfg.authz().admin())) {
-            throw new ForbiddenProblemException("admin marker required.");
-        }
     }
 
     private static void validatePaging(int page, int size) {

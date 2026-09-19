@@ -1,7 +1,7 @@
 package io.github.ricardoqmd.servicepolicy.persistence;
 
-import java.time.Instant;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import jakarta.inject.Singleton;
 
@@ -9,7 +9,9 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 
 import com.mongodb.MongoWriteException;
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
@@ -18,7 +20,6 @@ import io.github.ricardoqmd.servicepolicy.problem.AppConfigAlreadyExistsExceptio
 import io.github.ricardoqmd.servicepolicy.problem.AppConfigNotFoundException;
 import io.github.ricardoqmd.servicepolicy.problem.InvalidAppConfigException;
 import io.github.ricardoqmd.servicepolicy.problem.PreconditionFailedException;
-import io.github.ricardoqmd.servicepolicy.problem.ProblemException;
 
 /**
  * The only door to the per-application configuration collection (ADR-029): REST reads and writes
@@ -53,8 +54,6 @@ public class AppConfigStore {
     private static final String PIP = "pip";
     private static final String REVISION = "revision";
     private static final String AUDIT = "audit";
-    private static final String CREATED_BY = "createdBy";
-    private static final String CREATED_AT = "createdAt";
     private static final String SCHEMA_VERSION = "schemaVersion";
 
     private final AppConfigRepository repository;
@@ -71,13 +70,38 @@ public class AppConfigStore {
     }
 
     /**
+     * The claim path stored for one subject attribute of {@code app}, exactly as stored. {@link #find} reads
+     * every stored value as text, so {@code 5} or {@code ["apps"]} come back as claim paths; a check that must
+     * tell a usable claim path from a value that only reads as one reads it here instead.
+     *
+     * @return empty when {@code app} has no configuration, no mapping, or no value for {@code attribute};
+     *     otherwise the stored value, of whatever type it was stored with.
+     * @throws StoredDocumentSchemaException if the configuration's marker names a shape this build does not
+     *     know, exactly as {@link #find} does.
+     */
+    public Optional<Object> storedMappingValue(String app, String attribute) {
+        if (find(app).isEmpty()) {
+            return Optional.empty();
+        }
+        Document stored = repository
+                .mongoCollection()
+                .withDocumentClass(Document.class)
+                .find(identity(app))
+                .first();
+        if (stored == null || !(stored.get(SUBJECT_ATTRIBUTES) instanceof Document mapping)) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(mapping.get(attribute));
+    }
+
+    /**
      * Creates the app's configuration at {@code revision = 1}.
      *
      * @throws InvalidAppConfigException (400) listing every violation in {@code draft}.
      * @throws AppConfigAlreadyExistsException (409) if the app already has one — arbitrated by the
      *     unique index, so a concurrent create loses rather than duplicating.
      */
-    public AppConfig create(String app, AppConfigDraft draft, String callerSubject) {
+    public AppConfig create(String app, AppConfigDraft draft, AuditActor actor) {
         AppConfigValidator.validate(draft);
 
         AppConfigDocument document = new AppConfigDocument();
@@ -85,7 +109,7 @@ public class AppConfigStore {
         document.subjectAttributes = AppConfigMapper.toSubjectAttributesDocument(draft.subjectAttributes());
         document.pip = AppConfigMapper.toPipDocument(draft.pip());
         document.revision = 1L;
-        document.audit = auditDocument(callerSubject);
+        document.audit = AuditDocuments.of(actor);
 
         try {
             repository.mongoCollection().insertOne(document);
@@ -111,9 +135,22 @@ public class AppConfigStore {
      * @throws PreconditionFailedException (412) if {@code ifMatch} is stale.
      * @throws InvalidAppConfigException (400) listing every violation in {@code draft}.
      */
-    public AppConfig replace(String app, AppConfigDraft draft, long ifMatch, String callerSubject) {
+    public AppConfig replace(String app, AppConfigDraft draft, long ifMatch, AuditActor actor) {
+        return replace(app, draft, ifMatch, actor, valid -> {});
+    }
+
+    /**
+     * The same replace, with one more refusal the caller supplies, applied where validation is: after the
+     * precondition and after {@link AppConfigValidator}, before the CAS. A guard that throws leaves the
+     * stored document exactly as it was.
+     *
+     * @param writeGuard inspects the validated draft and throws to refuse it.
+     */
+    public AppConfig replace(
+            String app, AppConfigDraft draft, long ifMatch, AuditActor actor, Consumer<AppConfigDraft> writeGuard) {
         requirePrecondition(app, ifMatch);
         AppConfigValidator.validate(draft);
+        writeGuard.accept(draft);
 
         UpdateResult cas = repository
                 .mongoCollection()
@@ -124,7 +161,7 @@ public class AppConfigStore {
                                         SUBJECT_ATTRIBUTES,
                                         AppConfigMapper.toSubjectAttributesDocument(draft.subjectAttributes())),
                                 Updates.set(PIP, AppConfigMapper.toPipDocument(draft.pip())),
-                                Updates.set(AUDIT, auditDocument(callerSubject)),
+                                Updates.set(AUDIT, AuditDocuments.of(actor)),
                                 Updates.inc(REVISION, 1L)));
 
         if (cas.getMatchedCount() == 0) {
@@ -132,7 +169,7 @@ public class AppConfigStore {
         }
         provider.invalidate(app);
         // The re-read can only come back empty if another writer deleted the document between this
-        // CAS and this line — race-only, like staleOrMissing below, and untested for the same reason.
+        // CAS and this line — race-only, and untested for that reason.
         return find(app).orElseThrow(() -> new AppConfigNotFoundException(app));
     }
 
@@ -185,30 +222,53 @@ public class AppConfigStore {
      * The condition of every write to an existing configuration: its identity, the caller's
      * {@code If-Match}, and a shape this build knows (ADR-034 §8) — in the write itself, not in the read
      * before it. A document of an unknown shape fails the CAS like a stale revision, and
-     * {@link #staleOrMissing} re-reads it through {@link #recognised}, which refuses it.
+     * {@link #staleOrMissing} asks the store which cause it was.
      */
     private static Bson writable(String app, long ifMatch) {
-        return Filters.and(
-                identity(app),
-                Filters.eq(REVISION, ifMatch),
-                StoredDocumentSchemaCondition.writable(SCHEMA_VERSION, AppConfigDocument.SCHEMA_VERSION));
+        return Filters.and(identity(app), Filters.eq(REVISION, ifMatch), writableMarker());
+    }
+
+    /** The marker as the write condition accepts it (ADR-034 §8, §10). */
+    private static Bson writableMarker() {
+        return StoredDocumentSchemaCondition.writable(SCHEMA_VERSION, AppConfigDocument.SCHEMA_VERSION);
     }
 
     /**
-     * A CAS that matched nothing is either a stale If-Match on an existing document (412), one that no
-     * longer exists (404), or one whose shape this build does not know — which the re-read refuses with
-     * {@link StoredDocumentSchemaException} before either could be decided.
+     * A CAS that matched nothing has exactly three causes, and the store is asked which one it was rather
+     * than inferred from a revision. {@link #requirePrecondition} has already compared revisions, so getting
+     * here means another writer replaced, deleted or reshaped the document since — or that its marker is
+     * malformed in a way the read tolerates and the write does not (ADR-034 §11). Answering that last case
+     * with 412 would tell a caller whose {@code If-Match} is current that it is not; and the revision cannot
+     * decide it, because a configuration deleted and recreated is reborn at revision 1.
      *
-     * <p>{@link #requirePrecondition} has already read the document and compared revisions, so getting
-     * here means another writer replaced, deleted or reshaped the document between that read and this
-     * CAS — or that its marker is malformed in a way the read tolerates and the write does not (ADR-034
-     * §11), which answers 412 until a person repairs it. It stays because the CAS — not the courtesy
-     * check above — is the commit point, and this is what makes its verdict safe to act on.
+     * <ul>
+     *   <li>no document for the app — 404;
+     *   <li>a document with a marker this build accepts for writing — genuinely stale, 412 with its revision;
+     *   <li>a document whose marker this build does not accept for writing — the shape refusal, whatever its
+     *       revision, naming the marker as stored rather than as the codec would convert it.
+     * </ul>
+     *
+     * <p>It stays because the CAS — not the courtesy check above — is the commit point, and this is what
+     * makes its verdict safe to act on.
      */
-    private ProblemException staleOrMissing(String app) {
+    private RuntimeException staleOrMissing(String app) {
+        MongoCollection<Document> configs = repository.mongoCollection().withDocumentClass(Document.class);
+        Document stored = configs.find(identity(app))
+                .projection(Projections.include(SCHEMA_VERSION))
+                .first();
+        if (stored == null) {
+            return new AppConfigNotFoundException(app);
+        }
+        if (configs.countDocuments(Filters.and(identity(app), writableMarker())) == 0) {
+            return new StoredDocumentSchemaException(
+                    AppConfigDocument.COLLECTION,
+                    stored.getObjectId("_id"),
+                    SCHEMA_VERSION,
+                    stored.get(SCHEMA_VERSION));
+        }
         return find(app)
-                .map(existing ->
-                        (ProblemException) PreconditionFailedException.forAppConfiguration(app, existing.revision()))
+                .<RuntimeException>map(
+                        existing -> PreconditionFailedException.forAppConfiguration(app, existing.revision()))
                 .orElseGet(() -> new AppConfigNotFoundException(app));
     }
 
@@ -226,11 +286,5 @@ public class AppConfigStore {
                     AppConfigDocument.COLLECTION, document.id, SCHEMA_VERSION, document.schemaVersion);
         }
         return document;
-    }
-
-    /** Same field names and shape as the head and catalogue audits; configuration has no changeReason. */
-    private static Document auditDocument(String callerSubject) {
-        return new Document(CREATED_BY, callerSubject)
-                .append(CREATED_AT, Instant.now().toString());
     }
 }

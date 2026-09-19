@@ -25,6 +25,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
 import io.github.ricardoqmd.servicepolicy.enumeration.SubjectAttributeDeriver;
 import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
+import io.github.ricardoqmd.servicepolicy.persistence.AuditActor;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
@@ -139,7 +140,7 @@ class DerivationDoesNotRunOnThePushedTransportTest {
                         Effect.PERMIT,
                         new Comparison(Operator.EQ, new AttributeRef("subject.attr.area"), new Literal("north")))));
 
-        lifecycleStore.create(app, policy, "seed", null);
-        lifecycleStore.activate(app, policy.id(), 1, 0L, "seed", null);
+        lifecycleStore.create(app, policy, AuditActor.verified("seed"), null);
+        lifecycleStore.activate(app, policy.id(), 1, 0L, AuditActor.verified("seed"), null);
     }
 }

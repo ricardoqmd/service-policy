@@ -97,8 +97,8 @@ class PolicyLifecycleIndexesTest {
                 versionIndexNames().contains("app_1_policyId_1_version_1"), "the composite version index must exist");
 
         // The behaviour the legacy indexes blocked: the same id, and the same version number, in two apps.
-        store.create("nami", policy("doc-access"), "tester", null);
-        store.create("kronia", policy("doc-access"), "tester", null);
+        store.create("nami", policy("doc-access"), AuditActor.verified("tester"), null);
+        store.create("kronia", policy("doc-access"), AuditActor.verified("tester"), null);
 
         assertTrue(store.headExists("nami", "doc-access"));
         assertTrue(store.headExists("kronia", "doc-access"));

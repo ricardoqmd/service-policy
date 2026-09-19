@@ -23,7 +23,8 @@
 ###
 ### /evaluate NEVER reads the catalogue — this adds nothing to the hot path.
 ###
-### Admin-gated (ADR-013) and nested under the app (ADR-026): `app` must NOT appear in
+### Authorized per application (ADR-033: policy:read / policy:write on {app}) and nested
+### under the app (ADR-026): `app` must NOT appear in
 ### any request body (sending it → 400 BAD_REQUEST, even if it matches the path).
 ### Writes are conditional: If-Match: "<revision>" (the ETag from a GET).
 ###   Missing If-Match → 428 ; stale → 412.
@@ -31,7 +32,7 @@
 ### ============================================================================
 
 @host = http://localhost:8080
-@auth_admin = Bearer {{admin_jwt}}
+@auth_console = Bearer {{console_jwt}}
 
 
 ### ----------------------------------------------------------------------------
@@ -40,7 +41,7 @@
 ### Note: NO "app" field in the body — the path carries it. And no "*" in the list:
 ### the catalogue IS the explicit set that "*" expands to.
 POST {{host}}/v1/apps/rh/action-catalogue
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -57,7 +58,7 @@ Content-Type: application/json
 
 ### 2) DECLARE a second resource type — vocabularies stay apart per resource type
 POST {{host}}/v1/apps/rh/action-catalogue
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -74,7 +75,7 @@ Content-Type: application/json
 ### 3) LIST the whole catalogue of the app  →  200
 ### ----------------------------------------------------------------------------
 GET {{host}}/v1/apps/rh/action-catalogue
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  200 OK
 ### { "data": [
@@ -93,7 +94,7 @@ Authorization: {{auth_admin}}
 ### 4) GET one entry  →  200, read the ETag (needed to write)
 ### ----------------------------------------------------------------------------
 GET {{host}}/v1/apps/rh/action-catalogue/document
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  200 OK.  Headers: ETag: "1"
 
@@ -104,7 +105,7 @@ Authorization: {{auth_admin}}
 
 ### 5) Create a policy with actions ["*"]  →  201, but "*" is NOT what gets stored
 POST {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -126,7 +127,7 @@ Content-Type: application/json
 
 ### 6) …read the stored version back — the explicit list, in catalogue order
 GET {{host}}/v1/apps/rh/policies/doc-access/versions/1
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  200  →  "actions": ["create","read","update","delete"]   ← no "*"
 ### THIS is the fail-safe property: if someone adds "export" to the catalogue tomorrow,
@@ -136,7 +137,7 @@ Authorization: {{auth_admin}}
 
 ### 7) 400 INVALID_POLICY — an action the app does not declare
 POST {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -156,7 +157,7 @@ Content-Type: application/json
 
 ### 8) 400 INVALID_POLICY — "*" mixed with a named verb
 POST {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -175,7 +176,7 @@ Content-Type: application/json
 
 ### 9) 400 INVALID_POLICY — a resource type with no catalogue at all
 POST {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -196,7 +197,7 @@ Content-Type: application/json
 
 ### 10) Simulation validates identically (ADR-027 + ADR-028)
 POST {{host}}/v1/apps/rh/policies:simulate
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -228,7 +229,7 @@ Content-Type: application/json
 ### 11) PUT — ADD a verb.  Always safe: no existing policy changes meaning.
 ### The body is the FULL new set (a replace, not a merge).
 PUT {{host}}/v1/apps/rh/action-catalogue/document
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 If-Match: "1"
 
@@ -241,7 +242,7 @@ If-Match: "1"
 
 ### 12) 428 PRECONDITION_REQUIRED — write without If-Match
 PUT {{host}}/v1/apps/rh/action-catalogue/document
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 { "actions": ["create", "read"] }
@@ -253,7 +254,7 @@ Content-Type: application/json
 
 ### 13) 412 PRECONDITION_FAILED — stale If-Match
 PUT {{host}}/v1/apps/rh/action-catalogue/document
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 If-Match: "1"
 
@@ -268,12 +269,12 @@ If-Match: "1"
 ### 14) Activate doc-access, so an ACTIVE policy governs "delete"
 ### ----------------------------------------------------------------------------
 GET {{host}}/v1/apps/rh/policies/doc-access
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### → read the ETag ("0" right after create), then:
 
 POST {{host}}/v1/apps/rh/policies/doc-access/activate
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 If-Match: "0"
 
@@ -285,7 +286,7 @@ If-Match: "0"
 ### 15) 409 ACTION_IN_USE — remove a verb an ACTIVE policy still governs
 ### Use the entry's current ETag ("2" after step 11) as If-Match.
 PUT {{host}}/v1/apps/rh/action-catalogue/document
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 If-Match: "2"
 
@@ -304,7 +305,7 @@ If-Match: "2"
 
 ### 16) 409 ACTION_IN_USE — deleting the entry is removing every action at once
 DELETE {{host}}/v1/apps/rh/action-catalogue/document
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 If-Match: "2"
 
 ### EXPECTED  409  code: "ACTION_IN_USE"  (same policyIds)
@@ -312,7 +313,7 @@ If-Match: "2"
 
 ### 17) Deactivate the policy — now nothing governs "delete"
 POST {{host}}/v1/apps/rh/policies/doc-access/deactivate
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 If-Match: "1"
 
@@ -323,7 +324,7 @@ If-Match: "1"
 
 ### 18) …and the same removal now succeeds
 PUT {{host}}/v1/apps/rh/action-catalogue/document
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 If-Match: "2"
 
@@ -336,7 +337,7 @@ If-Match: "2"
 ### 19) DELETE the entry  →  204 No Content
 ### ----------------------------------------------------------------------------
 DELETE {{host}}/v1/apps/rh/action-catalogue/document
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 If-Match: "3"
 
 ### EXPECTED  204 No Content (empty body)
@@ -351,7 +352,7 @@ If-Match: "3"
 
 ### 20) The SAME resourceType in a DIFFERENT app → 201, not 409
 POST {{host}}/v1/apps/nami/action-catalogue
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 { "resourceType": "document", "actions": ["read", "publish"] }
@@ -362,7 +363,7 @@ Content-Type: application/json
 
 ### 21) …and an action declared in one app is UNKNOWN in another
 POST {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -382,7 +383,7 @@ Content-Type: application/json
 
 ### 22) 404 CATALOGUE_ENTRY_NOT_FOUND — another app's entry is invisible
 GET {{host}}/v1/apps/kronia/action-catalogue/document
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  404  code: "CATALOGUE_ENTRY_NOT_FOUND"
 
@@ -393,7 +394,7 @@ Authorization: {{auth_admin}}
 
 ### 23) 409 CATALOGUE_ENTRY_ALREADY_EXISTS — declaring a resource type twice
 POST {{host}}/v1/apps/nami/action-catalogue
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 { "resourceType": "document", "actions": ["read"] }
@@ -404,7 +405,7 @@ Content-Type: application/json
 
 ### 24) 400 BAD_REQUEST — `app` in the body (ADR-026)
 POST {{host}}/v1/apps/nami/action-catalogue
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 { "app": "nami", "resourceType": "ticket", "actions": ["read"] }
@@ -415,7 +416,7 @@ Content-Type: application/json
 
 ### 25) 400 BAD_REQUEST — "*" as a catalogue action
 POST {{host}}/v1/apps/nami/action-catalogue
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 { "resourceType": "ticket", "actions": ["*"] }
@@ -427,19 +428,23 @@ Content-Type: application/json
 ### not a policy document.
 
 
-### 26) 403 FORBIDDEN — non-admin token
+### 26) 403 FORBIDDEN — a token that does not carry this app in `apps`
 GET {{host}}/v1/apps/nami/action-catalogue
 Authorization: Bearer {{jwt}}
 
-### EXPECTED  403  code: "FORBIDDEN"  (every catalogue operation is admin-gated)
+### EXPECTED  403  code: "FORBIDDEN"  detail: "not authorized for this control-plane operation."
+### Identical for an app that does not exist: a denial never tells the two apart.
 
 
 ### ============================================================================
 ### HOW TO OBTAIN TOKENS (dev)
 ### ----------------------------------------------------------------------------
 ### In quarkus:dev the OIDC dev services start a Keycloak. Get tokens via the Dev UI
-### (http://localhost:8080/q/dev) → OIDC. {{admin_jwt}} must carry the admin marker
-### (role "authz-admin" by default; configurable per ADR-013).
+### (http://localhost:8080/q/dev) → OIDC. {{console_jwt}} must carry, in the claim the
+### deployment maps to `apps` (SERVICE_POLICY_CONTROL_PLANE_SUBJECT_ATTRIBUTES_APPS), every
+### application these requests name. There is no admin role (ADR-033).
+### On a store that has never been installed, use a token whose `sub` is the configured
+### bootstrap value instead: see INSTALLATION at the top of lifecycle-walkthrough.http.
 ###
 ### RELATED FILES:
 ###   lifecycle-walkthrough.http   full policy lifecycle (starts by declaring a catalogue)

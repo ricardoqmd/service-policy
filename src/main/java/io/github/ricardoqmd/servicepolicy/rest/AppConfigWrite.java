@@ -16,5 +16,7 @@ import java.util.Map;
  *
  * @param subjectAttributes attribute name → claim path within the token.
  * @param pip               where to fetch the attributes the token does not carry.
+ * @param subject           optional declaration of on whose behalf the write is made (ADR-033 §4). It
+ *                          confers no authority; it changes only what the audit records.
  */
-public record AppConfigWrite(Map<String, String> subjectAttributes, PipConfigWrite pip) {}
+public record AppConfigWrite(Map<String, String> subjectAttributes, PipConfigWrite pip, String subject) {}

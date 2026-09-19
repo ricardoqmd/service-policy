@@ -14,6 +14,9 @@ import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.http.ContentType;
 
 /**
@@ -24,7 +27,16 @@ import io.restassured.http.ContentType;
 @QuarkusTest
 class PolicyResourceTest {
 
+    @Inject
+    ControlPlaneTestSupport controlPlane;
+
     private static final String POLICIES = "/v1/apps/test-app/policies";
+
+    /**
+     * The claim value of the one case below that names two applications of its own. They are declared here,
+     * beside that case, rather than in the claim value the whole suite shares.
+     */
+    private static final String CONTRADICTORY_APPS = "[\"nami\",\"kronia\"]";
 
     private static final String DOC_ACCESS_POLICY = """
             {
@@ -71,6 +83,7 @@ class PolicyResourceTest {
         // catalogue — in both apps it is created under.
         ActionCatalogueTestSupport.declare(catalogueRepository, "test-app", "document", "read");
         ActionCatalogueTestSupport.declare(catalogueRepository, "other-app", "document", "read");
+        controlPlane.installed();
     }
 
     @AfterEach
@@ -86,9 +99,8 @@ class PolicyResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {"authz-admin"})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createPolicyIsInactiveByDefault() {
         given().contentType(ContentType.JSON)
                 .body(DOC_ACCESS_POLICY)
@@ -102,9 +114,8 @@ class PolicyResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {"authz-admin"})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void duplicatePolicyIdReturns409() {
         given().contentType(ContentType.JSON)
                 .body(DOC_ACCESS_POLICY)
@@ -127,9 +138,8 @@ class PolicyResourceTest {
      * different policy, not a conflict.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {"authz-admin"})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void samePolicyIdInAnotherAppIsCreated() {
         given().contentType(ContentType.JSON)
                 .body(DOC_ACCESS_POLICY)
@@ -155,9 +165,8 @@ class PolicyResourceTest {
      * payload.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {"authz-admin"})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void policyDocumentCarryingAppReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -186,9 +195,8 @@ class PolicyResourceTest {
      * must never be able to claim 'kronia', not even by writing it down.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {"authz-admin"})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = CONTRADICTORY_APPS, type = ClaimType.JSON_ARRAY))
     void policyDocumentCarryingAContradictoryAppReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -215,9 +223,8 @@ class PolicyResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {"authz-admin"})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void malformedPolicyReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -254,7 +261,7 @@ class PolicyResourceTest {
 
     @Test
     @TestSecurity(user = "plain-user")
-    void createWithoutAdminMarkerReturns403() {
+    void createWithoutAuthorizationForTheAppReturns403() {
         given().contentType(ContentType.JSON)
                 .body(DOC_ACCESS_POLICY)
                 .when()

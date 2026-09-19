@@ -17,17 +17,21 @@ import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.http.ContentType;
 
 /**
  * Integration tests for the activation write-path: POST /{id}/activate and POST /{id}/deactivate
  * (ADR-020), nested under the app (ADR-026). Covers the conditional-write guards (ADR-018), 404
- * disambiguation, the ETag contract, and the no-admin 403 guard.
+ * disambiguation, the ETag contract, and the 403 of a caller not authorized for the app.
  */
 @QuarkusTest
 class PolicyActivationResourceTest {
 
-    private static final String ADMIN = "authz-admin";
+    @Inject
+    ControlPlaneTestSupport controlPlane;
 
     private static final String VALID_POLICY = """
             {
@@ -61,6 +65,7 @@ class PolicyActivationResourceTest {
         wipe();
         // ADR-028: createPolicy() authors actions ["read"] on 'document', which must be catalogued.
         ActionCatalogueTestSupport.declare(catalogueRepository, "test-app", "document", "read");
+        controlPlane.installed();
     }
 
     @AfterEach
@@ -78,9 +83,8 @@ class PolicyActivationResourceTest {
     // ── POST /{id}/activate — happy path ─────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void activateVersionReturns200WithEtagAndActiveContent() {
         createPolicy();
         String etag = headEtag();
@@ -102,9 +106,8 @@ class PolicyActivationResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void activateBumpsRevisionAndChangesEtag() {
         createPolicy();
         String etagBefore = headEtag();
@@ -125,9 +128,8 @@ class PolicyActivationResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void reActivateSameVersionBumpsRevisionAgain() {
         createPolicy();
         String etag1 = headEtag();
@@ -162,9 +164,8 @@ class PolicyActivationResourceTest {
     // ── POST /{id}/activate — guards ─────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void activateWithoutIfMatchReturns428() {
         createPolicy();
 
@@ -180,9 +181,8 @@ class PolicyActivationResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void activateWithStaleIfMatchReturns412WithCurrentRevision() {
         createPolicy();
 
@@ -201,9 +201,8 @@ class PolicyActivationResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void activateUnknownPolicyReturns404() {
         given().contentType(ContentType.JSON)
                 .header("If-Match", "\"0\"")
@@ -218,9 +217,8 @@ class PolicyActivationResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void activateInAnotherAppReturns404() {
         createPolicy();
 
@@ -237,9 +235,8 @@ class PolicyActivationResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void activateUnknownVersionReturns404VersionNotFound() {
         createPolicy();
         String etag = headEtag();
@@ -257,9 +254,8 @@ class PolicyActivationResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void activateWithMissingVersionFieldInBodyReturns400() {
         createPolicy();
         String etag = headEtag();
@@ -278,7 +274,7 @@ class PolicyActivationResourceTest {
 
     @Test
     @TestSecurity(user = "plain-user")
-    void activateWithoutAdminMarkerReturns403() {
+    void activateWithoutAuthorizationForTheAppReturns403() {
         given().contentType(ContentType.JSON)
                 .header("If-Match", "\"0\"")
                 .body("""
@@ -294,9 +290,8 @@ class PolicyActivationResourceTest {
     // ── POST /{id}/deactivate — happy path ───────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deactivateActiveVersionReturns200WithNullActiveVersion() {
         createPolicy();
         String etag1 = headEtag();
@@ -327,9 +322,8 @@ class PolicyActivationResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deactivateWithOptionalBodyWorks() {
         createPolicy();
         String etag1 = headEtag();
@@ -359,9 +353,8 @@ class PolicyActivationResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deactivateAlreadyInactivePolicyBumpsRevision() {
         createPolicy();
         String etag = headEtag();
@@ -382,9 +375,8 @@ class PolicyActivationResourceTest {
     // ── POST /{id}/deactivate — guards ───────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deactivateWithoutIfMatchReturns428() {
         createPolicy();
 
@@ -397,9 +389,8 @@ class PolicyActivationResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deactivateWithStaleIfMatchReturns412() {
         createPolicy();
 
@@ -415,9 +406,8 @@ class PolicyActivationResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deactivateUnknownPolicyReturns404() {
         given().contentType(ContentType.JSON)
                 .header("If-Match", "\"0\"")
@@ -429,9 +419,8 @@ class PolicyActivationResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deactivateInAnotherAppReturns404() {
         createPolicy();
 
@@ -446,7 +435,7 @@ class PolicyActivationResourceTest {
 
     @Test
     @TestSecurity(user = "plain-user")
-    void deactivateWithoutAdminMarkerReturns403() {
+    void deactivateWithoutAuthorizationForTheAppReturns403() {
         given().contentType(ContentType.JSON)
                 .header("If-Match", "\"0\"")
                 .when()

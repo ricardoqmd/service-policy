@@ -24,6 +24,7 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Or;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
 import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
+import io.github.ricardoqmd.servicepolicy.persistence.AuditActor;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
@@ -481,8 +482,8 @@ class ConditionOperatorScenariosTest {
     }
 
     private void activateFull(Policy policy) {
-        lifecycleStore.create(APP, policy, "seed", null);
-        lifecycleStore.activate(APP, policy.id(), 1, 0L, "seed", null);
+        lifecycleStore.create(APP, policy, AuditActor.verified("seed"), null);
+        lifecycleStore.activate(APP, policy.id(), 1, 0L, AuditActor.verified("seed"), null);
     }
 
     private static ValidatableResponse eval(String body) {

@@ -52,6 +52,15 @@ public class PolicyReadMapper {
     }
 
     private AuditView auditView(PolicyAudit audit) {
-        return audit == null ? null : new AuditView(audit.createdBy(), audit.createdAt(), audit.changeReason());
+        return audit == null
+                ? null
+                : new AuditView(
+                        audit.createdBy(),
+                        audit.createdAt(),
+                        audit.changeReason(),
+                        audit.subject(),
+                        audit.subjectProvenance() == null
+                                ? null
+                                : audit.subjectProvenance().name());
     }
 }

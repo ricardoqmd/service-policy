@@ -8,9 +8,9 @@ import org.jboss.logging.Logger;
 import io.quarkus.runtime.StartupEvent;
 
 /**
- * Fail-fast startup validator for authorization marker configuration (ADR-013 §3).
+ * Fail-fast startup validator for the delegation marker configuration (ADR-013 §3).
  *
- * <p>Validates that each marker's active mode has a corresponding non-blank value.
+ * <p>Validates that the marker's active mode has a corresponding non-blank value.
  * If the active mode's value is missing, the application fails to start with a clear message.
  * An inactive mode's value triggers a WARN and is otherwise ignored (config smell, not fatal).
  */
@@ -27,7 +27,6 @@ public class AuthzConfigValidator {
     }
 
     void onStart(@Observes StartupEvent event) {
-        validate("admin", cfg.authz().admin());
         validate("delegation", cfg.authz().delegation());
     }
 

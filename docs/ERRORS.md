@@ -25,7 +25,7 @@ body. Everything else below is problem+json.
 | [`PRECONDITION_FAILED`](#precondition-failed)                       | 412  | The `If-Match` ETag is stale                         |
 | [`POLICY_NOT_FOUND`](#policy-not-found)                             | 404  | The referenced policy does not exist                 |
 | [`VERSION_NOT_FOUND`](#version-not-found)                           | 404  | The referenced version does not exist                |
-| [`FORBIDDEN`](#forbidden)                                           | 403  | The caller lacks the required authorization marker   |
+| [`FORBIDDEN`](#forbidden)                                           | 403  | The caller is not authorized for this operation      |
 | [`CATALOGUE_ENTRY_ALREADY_EXISTS`](#catalogue-entry-already-exists) | 409  | The app already declares that resource type          |
 | [`CATALOGUE_ENTRY_NOT_FOUND`](#catalogue-entry-not-found)           | 404  | The app declares no catalogue for that resource type |
 | [`ACTION_IN_USE`](#action-in-use)                                   | 409  | Removing an action an active policy still governs    |
@@ -130,7 +130,11 @@ the write with `If-Match: "<etag>"`.
 **Meaning.** Your `If-Match` ETag no longer matches the resource: it changed after
 you read it (someone else wrote to it). The write was not applied.
 
-**Triggered by.** A conditional write whose `If-Match` value is stale.
+**Triggered by.** A conditional write whose `If-Match` value is stale — and only that.
+When a conditional write matches nothing, the service asks the store why: a resource that
+is gone is a `404`; one whose revision moved is this `412`; and one stored in a shape this
+build reads but may not write (ADR-034) is a server error, never a `412`, because no
+`If-Match` a client could send would satisfy it.
 
 **Client should.** Reload the resource (its `ETag` moved to `currentRevision`),
 re-apply the intended change on top of the current state, and retry. This is the
@@ -251,15 +255,36 @@ so the same version number can exist in another app's policy of the same id.
 
 `FORBIDDEN` · **403 Forbidden**
 
-**Meaning.** You are authenticated, but you lack the authorization marker the
-operation requires (for example the admin marker for authoring, or the delegation
-marker for querying a different subject).
+**Meaning.** You are authenticated, but not authorized for what you asked. There are
+three cases, and the `detail` tells them apart only where doing so discloses nothing.
 
-**Triggered by.** A call to a protected operation with a valid token that does not
-carry the required marker.
+**Triggered by.**
+
+- **A control-plane call the control-plane policy set does not permit** (ADR-033). Every
+  endpoint under `/v1/apps/{app}/policies`, `/policies:simulate`, `/action-catalogue` and
+  `/configuration` is decided by policy for the application in the path, from your
+  validated token. The body of this refusal is always the same, word for word: it does
+  **not** depend on whether the application exists, so it cannot be used to discover
+  applications. Before the service is installed, only the bootstrap subject is permitted.
+- **Creating or deleting the configuration of the reserved control-plane application**,
+  by a caller that is otherwise authorized for it. That configuration is created by
+  installation and replaced with `PUT`; it is never created or deleted through the API.
+- **A delegated query** — an explicit `subject` different from the caller on `/evaluate`,
+  `:enumerate` or `/policies:simulate` — without the delegation marker (ADR-013 §5). On
+  `:simulate` it is reached after the control-plane gate has already permitted the read, and
+  it depends only on the body.
+
+There is no administrative marker: no role or scope grants control-plane access by
+itself (ADR-033 §5).
 
 **Client should.** This is an authorization gap, not an authentication one — do not
-re-authenticate. The identity needs the appropriate role or scope.
+re-authenticate. For the control plane, the credential needs the application in the claim
+that the **stored** configuration of the reserved control-plane application maps to `apps`
+— after installation the deployment property is ignored, so the claim in force is the stored
+one. Adding a policy does not widen this on its own: with deny-overrides, every policy
+selected for the action must permit it, so an added policy can narrow access but not extend
+it (ADR-033 §1), and widening means revising the policy that governs that action. For
+delegation, the credential needs the delegation role or scope.
 
 ```json
 {
@@ -267,9 +292,13 @@ re-authenticate. The identity needs the appropriate role or scope.
   "title": "Forbidden",
   "status": 403,
   "code": "FORBIDDEN",
-  "detail": "Admin marker required."
+  "detail": "not authorized for this control-plane operation."
 }
 ```
+
+The merged catalogue `GET /v1/policies` never answers this: a caller who may read no
+application receives `200` with an empty page, since a `403` would itself disclose that
+other applications exist.
 
 ---
 
@@ -433,6 +462,12 @@ at least one of `subjectAttributes`/`pip` present; non-blank attribute names and
 paths; when `pip` is present, all four of its fields, with `url` an absolute
 `http`/`https` URL containing the `{sub}` placeholder, `timeoutMs` in 1..10000,
 `cacheTtlSeconds` in 0..86400, and a non-blank `credentialRef`.
+
+One more rule applies to the **reserved control-plane application** only (ADR-033 §6): a
+`PUT` whose `subjectAttributes`, resolved against the caller's own token, would not give
+the caller the reserved application in `apps` is refused with this code, on the field
+`subjectAttributes.apps`, and nothing is stored. It does not stop a change from excluding
+other callers; it guarantees that whoever makes a change can undo it.
 
 Validation is syntax and bounds only — the configured source is deliberately **never
 contacted** at write time. A source that is down when configuration is written is not a

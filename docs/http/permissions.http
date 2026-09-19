@@ -36,16 +36,16 @@
 
 @host = http://localhost:8080
 @auth = Bearer {{jwt}}
-@auth_admin = Bearer {{admin_jwt}}
+@auth_console = Bearer {{console_jwt}}
 
 
 ### ----------------------------------------------------------------------------
-### SETUP (admin) — a catalogue, a config, and policies on the four outcomes
+### SETUP (control plane) — a catalogue, a config, and policies on the four outcomes
 ### ----------------------------------------------------------------------------
 ### 0a) Declare the vocabulary of "document" (ADR-028). Without a catalogue there is
 ###     nothing to enumerate and the answer is an empty list.
 POST {{host}}/v1/apps/rh/action-catalogue
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 { "resourceType": "document", "actions": ["create", "read", "update", "delete"] }
@@ -54,7 +54,7 @@ Content-Type: application/json
 ### 0b) Map a subject attribute from a token claim (ADR-029), so a type-level policy can
 ###     read it. Here subject.attr.area comes from the token's "dept" claim.
 POST {{host}}/v1/apps/rh/configuration
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 { "subjectAttributes": { "area": "dept" } }
@@ -62,7 +62,7 @@ Content-Type: application/json
 
 ### 0c) create — type-level PERMIT (reads only subject + resource type): DETERMINISTIC.
 POST {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 { "policyId": "doc-create", "version": 1, "resourceType": "document", "actions": ["create"],
@@ -79,7 +79,7 @@ Content-Type: application/json
 ###     doc-update PERMITs when resource.attr.areaId == subject.attr.area. The areaId is
 ###     unknown here, so the pair is conditional and dependsOn = ["areaId"].
 POST {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 { "policyId": "doc-update", "version": 1, "resourceType": "document", "actions": ["update"],
@@ -91,7 +91,7 @@ Content-Type: application/json
 
 ### 0e) delete — a policy that DENIES deterministically → the pair is OMITTED.
 POST {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 { "policyId": "doc-delete-block", "version": 1, "resourceType": "document", "actions": ["delete"],

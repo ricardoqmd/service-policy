@@ -14,6 +14,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.github.ricardoqmd.servicepolicy.ControlPlaneTestSupport;
 import io.github.ricardoqmd.servicepolicy.domain.policy.AttributeRef;
 import io.github.ricardoqmd.servicepolicy.domain.policy.CombiningAlgorithm;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Comparison;
@@ -29,19 +30,23 @@ import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionDocument;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 
 /**
  * HTTP tests for the policy read endpoints (ADR-016 / ADR-017): the collection envelope, lean vs
  * {@code ?view=full} projection, single-resource shapes, and the 403/404/400 guards. Every route is
  * nested under its application (ADR-026), so the app is a path coordinate rather than a body or
- * query field. Uses {@code @TestSecurity} with the {@code authz-admin} role to satisfy the admin
- * marker (ADR-013); a request with an authenticated-but-unprivileged identity verifies the 403
+ * query field. The caller's token carries the app in its {@code apps} claim, which the control-plane
+ * gate requires (ADR-033); a request with an authenticated identity that carries none verifies the 403
  * guard.
  */
 @QuarkusTest
 class PolicyReadResourceTest {
 
-    private static final String ADMIN = "authz-admin";
+    @Inject
+    ControlPlaneTestSupport controlPlane;
 
     private static final String APP = "test-app";
 
@@ -59,6 +64,7 @@ class PolicyReadResourceTest {
     void clean() {
         headRepository.deleteAll();
         versionRepository.deleteAll();
+        controlPlane.installed();
     }
 
     @AfterEach
@@ -67,9 +73,8 @@ class PolicyReadResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void listReturnsLeanEnvelopeByDefault() {
         seedHead("p-a", 1, 1, policy("p-a", 1));
 
@@ -89,9 +94,8 @@ class PolicyReadResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void listEmbedsContentWhenViewFull() {
         seedHead("p-a", 1, 1, policy("p-a", 1));
 
@@ -105,9 +109,8 @@ class PolicyReadResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void getByIdReturnsFullHead() {
         seedHead("p-a", 1, 7, policy("p-a", 1));
 
@@ -123,9 +126,8 @@ class PolicyReadResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void getByIdIsNotFoundForUnknownPolicy() {
         given().when().get(POLICIES + "/nope").then().statusCode(404).body("code", equalTo("POLICY_NOT_FOUND"));
     }
@@ -135,9 +137,8 @@ class PolicyReadResourceTest {
      * another app, is not visible through this app's route.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void getByIdIsNotFoundForAPolicyOfAnotherApp() {
         seedHead("p-a", 1, 1, policy("p-a", 1));
 
@@ -149,9 +150,8 @@ class PolicyReadResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void listVersionsReturnsNewestFirst() {
         seedHead("p-a", 2, 2, policy("p-a", 2));
         seedVersion("p-a", 1);
@@ -169,9 +169,8 @@ class PolicyReadResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void listVersionsIsNotFoundWhenPolicyUnknown() {
         given().when()
                 .get(POLICIES + "/nope/versions")
@@ -181,9 +180,8 @@ class PolicyReadResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void getVersionReturnsBareContent() {
         seedHead("p-a", 1, 1, policy("p-a", 1));
         seedVersion("p-a", 1);
@@ -199,9 +197,8 @@ class PolicyReadResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void getVersionIsNotFoundWhenMissing() {
         seedHead("p-a", 1, 1, policy("p-a", 1));
         seedVersion("p-a", 1);
@@ -214,9 +211,8 @@ class PolicyReadResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void rejectsInvalidPaging() {
         given().queryParam("size", 999)
                 .when()
@@ -228,7 +224,7 @@ class PolicyReadResourceTest {
 
     @Test
     @TestSecurity(user = "plain-user")
-    void rejectsCallerWithoutAdminMarker() {
+    void rejectsCallerNotAuthorizedForTheApp() {
         given().when().get(POLICIES).then().statusCode(403).body("code", equalTo("FORBIDDEN"));
     }
 

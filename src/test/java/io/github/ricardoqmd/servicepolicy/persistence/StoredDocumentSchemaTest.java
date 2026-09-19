@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import jakarta.enterprise.inject.Vetoed;
 import jakarta.inject.Inject;
@@ -43,6 +44,9 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.HeadStatus;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
+import io.github.ricardoqmd.servicepolicy.problem.AppConfigNotFoundException;
+import io.github.ricardoqmd.servicepolicy.problem.CatalogueEntryNotFoundException;
+import io.github.ricardoqmd.servicepolicy.problem.PolicyNotFoundException;
 import io.github.ricardoqmd.servicepolicy.problem.PreconditionFailedException;
 import io.quarkus.test.junit.QuarkusMock;
 import io.quarkus.test.junit.QuarkusTest;
@@ -112,7 +116,7 @@ class StoredDocumentSchemaTest {
     void createWritesAVersionWithSchemaVersionOne() {
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
 
-        store.create(APP, policy("p-new", 1), "tester", "first");
+        store.create(APP, policy("p-new", 1), AuditActor.verified("tester"), "first");
 
         Document stored = stored("policy_versions", Filters.eq("policyId", "p-new"));
         assertEquals(Set.of("_id", "app", "policyId", "version", "content", "audit", "schemaVersion"), stored.keySet());
@@ -124,7 +128,7 @@ class StoredDocumentSchemaTest {
     void createWritesAHeadWithItsOwnMarkerAndNoContentMarker() {
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
 
-        store.create(APP, policy("p-new", 1), "tester", "first");
+        store.create(APP, policy("p-new", 1), AuditActor.verified("tester"), "first");
 
         Document stored = stored("policy_heads", Filters.eq("policyId", "p-new"));
         assertEquals(
@@ -145,9 +149,9 @@ class StoredDocumentSchemaTest {
     @Test
     void appendWritesTheNewVersionWithSchemaVersionOne() {
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
-        store.create(APP, policy("p-new", 1), "tester", "first");
+        store.create(APP, policy("p-new", 1), AuditActor.verified("tester"), "first");
 
-        store.append(APP, "p-new", policy("p-new", 2), 0L, "tester", "second");
+        store.append(APP, "p-new", policy("p-new", 2), 0L, AuditActor.verified("tester"), "second");
 
         Document stored =
                 stored("policy_versions", Filters.and(Filters.eq("policyId", "p-new"), Filters.eq("version", 2)));
@@ -157,7 +161,7 @@ class StoredDocumentSchemaTest {
 
     @Test
     void createWritesAConfigurationWithSchemaVersionOne() {
-        configStore.create(APP, draft(), "tester");
+        configStore.create(APP, draft(), AuditActor.verified("tester"));
 
         Document stored = stored("app_configs", Filters.eq("app", APP));
         assertEquals(
@@ -168,7 +172,7 @@ class StoredDocumentSchemaTest {
 
     @Test
     void createWritesACatalogueEntryWithSchemaVersionOne() {
-        catalogueStore.create(APP, "invoice", List.of("read", "approve"), "tester");
+        catalogueStore.create(APP, "invoice", List.of("read", "approve"), AuditActor.verified("tester"));
 
         Document stored = stored("action_catalogue", Filters.eq("resourceType", "invoice"));
         assertEquals(
@@ -192,8 +196,8 @@ class StoredDocumentSchemaTest {
         assertEquals(List.of(v1), store.activePoliciesFor(APP, "document"));
 
         // The write paths read them too: append reads the latest version, activate the one it copies.
-        int appended = store.append(APP, "p-old", policy("p-old", 2), 1L, "tester", "second");
-        store.activate(APP, "p-old", 1, 2L, "tester", "back to one");
+        int appended = store.append(APP, "p-old", policy("p-old", 2), 1L, AuditActor.verified("tester"), "second");
+        store.activate(APP, "p-old", 1, 2L, AuditActor.verified("tester"), "back to one");
 
         assertEquals(2, appended);
         assertFalse(stored("policy_versions", Filters.eq("version", 1)).containsKey("schemaVersion"));
@@ -202,7 +206,7 @@ class StoredDocumentSchemaTest {
         assertEquals(1, head.get("activeContentSchemaVersion"));
 
         // The third head writer: deactivation must not backfill the head's own marker either.
-        store.deactivate(APP, "p-old", 3L, "tester", "retire");
+        store.deactivate(APP, "p-old", 3L, AuditActor.verified("tester"), "retire");
 
         Document deactivated = stored("policy_heads", Filters.eq("policyId", "p-old"));
         assertFalse(deactivated.containsKey("schemaVersion"), "deactivation must not backfill the head's own marker");
@@ -218,7 +222,7 @@ class StoredDocumentSchemaTest {
                 configStore.find(APP).orElseThrow().subjectAttributes());
         assertEquals(1L, provider.forApp(APP).orElseThrow().revision());
 
-        AppConfig replaced = configStore.replace(APP, draft(), 1L, "tester");
+        AppConfig replaced = configStore.replace(APP, draft(), 1L, AuditActor.verified("tester"));
 
         assertEquals(2L, replaced.revision());
         assertFalse(stored("app_configs", Filters.eq("app", APP)).containsKey("schemaVersion"));
@@ -238,7 +242,7 @@ class StoredDocumentSchemaTest {
                         .actions());
 
         ActionCatalogueEntry replaced =
-                catalogueStore.replace(APP, "document", List.of("read", "approve"), 1L, "tester");
+                catalogueStore.replace(APP, "document", List.of("read", "approve"), 1L, AuditActor.verified("tester"));
 
         assertEquals(2L, replaced.revision());
         assertFalse(stored("action_catalogue", Filters.eq("resourceType", "document"))
@@ -310,7 +314,7 @@ class StoredDocumentSchemaTest {
         for (int attempt = 1; attempt <= 2; attempt++) {
             assertThrows(
                     StoredDocumentSchemaException.class,
-                    () -> store.append(APP, "p-x", policy("p-x", 2), 0L, "tester", "second"));
+                    () -> store.append(APP, "p-x", policy("p-x", 2), 0L, AuditActor.verified("tester"), "second"));
 
             assertEquals(
                     0L, stored("policy_heads", Filters.eq("policyId", "p-x")).get("revision"));
@@ -325,7 +329,9 @@ class StoredDocumentSchemaTest {
         collection("policy_versions")
                 .insertOne(unmarkedVersion("p-x", policy("p-x", 1)).append("schemaVersion", UNKNOWN));
 
-        assertThrows(StoredDocumentSchemaException.class, () -> store.activate(APP, "p-x", 1, 0L, "tester", "go"));
+        assertThrows(
+                StoredDocumentSchemaException.class,
+                () -> store.activate(APP, "p-x", 1, 0L, AuditActor.verified("tester"), "go"));
         assertNull(stored("policy_heads", Filters.eq("policyId", "p-x")).get("activeVersion"));
     }
 
@@ -352,7 +358,8 @@ class StoredDocumentSchemaTest {
 
         assertThrows(
                 StoredDocumentSchemaException.class,
-                () -> catalogueStore.replace(APP, "document", List.of("read", "approve"), 1L, "tester"));
+                () -> catalogueStore.replace(
+                        APP, "document", List.of("read", "approve"), 1L, AuditActor.verified("tester")));
         assertThrows(StoredDocumentSchemaException.class, () -> catalogueStore.delete(APP, "document", 1L));
         assertEquals(
                 List.of("read"),
@@ -379,7 +386,9 @@ class StoredDocumentSchemaTest {
     void configurationReplaceAndDeleteRefuseAnUnknownMarkerAndLeaveItStored() {
         collection("app_configs").insertOne(unmarkedConfig().append("schemaVersion", UNKNOWN));
 
-        assertThrows(StoredDocumentSchemaException.class, () -> configStore.replace(APP, draft(), 1L, "tester"));
+        assertThrows(
+                StoredDocumentSchemaException.class,
+                () -> configStore.replace(APP, draft(), 1L, AuditActor.verified("tester")));
         assertThrows(StoredDocumentSchemaException.class, () -> configStore.delete(APP, 1L));
         assertEquals(1L, stored("app_configs", Filters.eq("app", APP)).get("revision"));
     }
@@ -403,19 +412,19 @@ class StoredDocumentSchemaTest {
     @Test
     void activatingAVersionWritesItsMarkerAndActivatingAnotherRewritesIt() {
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
-        store.create(APP, policy("p-act", 1), "tester", "first");
+        store.create(APP, policy("p-act", 1), AuditActor.verified("tester"), "first");
 
         dropContentMarker("p-act");
-        PolicyHead first = store.activate(APP, "p-act", 1, 0L, "tester", "one");
+        PolicyHead first = store.activate(APP, "p-act", 1, 0L, AuditActor.verified("tester"), "one");
 
         Document afterFirst = stored("policy_heads", Filters.eq("policyId", "p-act"));
         assertEquals(1, afterFirst.get("activeVersion"));
         assertEquals(1, afterFirst.get("activeContentSchemaVersion"));
 
-        store.append(APP, "p-act", policy("p-act", 2), first.revision(), "tester", "second");
+        store.append(APP, "p-act", policy("p-act", 2), first.revision(), AuditActor.verified("tester"), "second");
         long revision = store.findHead(APP, "p-act").orElseThrow().revision();
         dropContentMarker("p-act");
-        store.activate(APP, "p-act", 2, revision, "tester", "two");
+        store.activate(APP, "p-act", 2, revision, AuditActor.verified("tester"), "two");
 
         Document afterSecond = stored("policy_heads", Filters.eq("policyId", "p-act"));
         assertEquals(2, afterSecond.get("activeVersion"));
@@ -437,7 +446,7 @@ class StoredDocumentSchemaTest {
 
         assertThrows(
                 StoredDocumentSchemaException.class,
-                () -> store.append(APP, "p-x", policy("p-x", 3), 1L, "tester", "third"));
+                () -> store.append(APP, "p-x", policy("p-x", 3), 1L, AuditActor.verified("tester"), "third"));
 
         assertArrayEquals(before, rawHead("p-x"));
         assertEquals(2, collection("policy_versions").countDocuments(Filters.eq("policyId", "p-x")));
@@ -448,7 +457,9 @@ class StoredDocumentSchemaTest {
         seedUnknownShapeHead("p-x");
         byte[] before = rawHead("p-x");
 
-        assertThrows(StoredDocumentSchemaException.class, () -> store.activate(APP, "p-x", 2, 1L, "tester", "two"));
+        assertThrows(
+                StoredDocumentSchemaException.class,
+                () -> store.activate(APP, "p-x", 2, 1L, AuditActor.verified("tester"), "two"));
 
         assertArrayEquals(before, rawHead("p-x"));
     }
@@ -458,7 +469,9 @@ class StoredDocumentSchemaTest {
         seedUnknownShapeHead("p-x");
         byte[] before = rawHead("p-x");
 
-        assertThrows(StoredDocumentSchemaException.class, () -> store.deactivate(APP, "p-x", 1L, "tester", "off"));
+        assertThrows(
+                StoredDocumentSchemaException.class,
+                () -> store.deactivate(APP, "p-x", 1L, AuditActor.verified("tester"), "off"));
 
         assertArrayEquals(before, rawHead("p-x"));
     }
@@ -471,9 +484,9 @@ class StoredDocumentSchemaTest {
     @Test
     void aRefusedWriteLeavesTheRevisionTheCallerHolds() {
         List<Runnable> writes = List.of(
-                () -> store.append(APP, "p-x", policy("p-x", 3), 1L, "tester", "third"),
-                () -> store.activate(APP, "p-x", 2, 1L, "tester", "two"),
-                () -> store.deactivate(APP, "p-x", 1L, "tester", "off"));
+                () -> store.append(APP, "p-x", policy("p-x", 3), 1L, AuditActor.verified("tester"), "third"),
+                () -> store.activate(APP, "p-x", 2, 1L, AuditActor.verified("tester"), "two"),
+                () -> store.deactivate(APP, "p-x", 1L, AuditActor.verified("tester"), "off"));
         for (Runnable write : writes) {
             wipe();
             seedUnknownShapeHead("p-x");
@@ -502,7 +515,7 @@ class StoredDocumentSchemaTest {
         collection("policy_versions").insertOne(unmarkedVersion("p-x", policy("p-x", 1)));
         collection("policy_versions").insertOne(unmarkedVersion("p-x", policy("p-x", 2)));
 
-        PolicyHead head = store.activate(APP, "p-x", 2, 1L, "tester", "two");
+        PolicyHead head = store.activate(APP, "p-x", 2, 1L, AuditActor.verified("tester"), "two");
 
         assertEquals(2, head.activeVersion());
         Document stored = stored("policy_heads", Filters.eq("policyId", "p-x"));
@@ -528,9 +541,9 @@ class StoredDocumentSchemaTest {
         byte[] before = rawHead("p-x");
 
         List<Executable> staleWrites = List.of(
-                () -> store.append(APP, "p-x", policy("p-x", 3), 3L, "tester", "third"),
-                () -> store.activate(APP, "p-x", 2, 3L, "tester", "two"),
-                () -> store.deactivate(APP, "p-x", 3L, "tester", "off"));
+                () -> store.append(APP, "p-x", policy("p-x", 3), 3L, AuditActor.verified("tester"), "third"),
+                () -> store.activate(APP, "p-x", 2, 3L, AuditActor.verified("tester"), "two"),
+                () -> store.deactivate(APP, "p-x", 3L, AuditActor.verified("tester"), "off"));
         for (Executable stale : staleWrites) {
             PreconditionFailedException refused = assertThrows(PreconditionFailedException.class, stale);
 
@@ -539,7 +552,7 @@ class StoredDocumentSchemaTest {
         }
         assertThrows(StoredDocumentSchemaException.class, () -> store.findHead(APP, "p-x"));
 
-        PolicyHead activated = store.activate(APP, "p-x", 2, 5L, "tester", "two");
+        PolicyHead activated = store.activate(APP, "p-x", 2, 5L, AuditActor.verified("tester"), "two");
 
         assertEquals(2, activated.activeVersion());
         assertEquals(6L, activated.revision());
@@ -555,7 +568,7 @@ class StoredDocumentSchemaTest {
                         .append("activeContentSchemaVersion", UNKNOWN));
         collection("policy_versions").insertOne(unmarkedVersion("p-x", policy("p-x", 1)));
 
-        assertEquals(2, store.append(APP, "p-x", policy("p-x", 2), 1L, "tester", "second"));
+        assertEquals(2, store.append(APP, "p-x", policy("p-x", 2), 1L, AuditActor.verified("tester"), "second"));
 
         Document stored = stored("policy_heads", Filters.eq("policyId", "p-x"));
         assertEquals(2L, stored.get("revision"));
@@ -567,11 +580,11 @@ class StoredDocumentSchemaTest {
     @Test
     void deactivateLeavesNoContentMarkerBehind() {
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
-        store.create(APP, policy("p-d", 1), "tester", "first");
-        store.activate(APP, "p-d", 1, 0L, "tester", "on");
+        store.create(APP, policy("p-d", 1), AuditActor.verified("tester"), "first");
+        store.activate(APP, "p-d", 1, 0L, AuditActor.verified("tester"), "on");
         assertEquals(1, stored("policy_heads", Filters.eq("policyId", "p-d")).get("activeContentSchemaVersion"));
 
-        store.deactivate(APP, "p-d", 1L, "tester", "off");
+        store.deactivate(APP, "p-d", 1L, AuditActor.verified("tester"), "off");
 
         Document stored = stored("policy_heads", Filters.eq("policyId", "p-d"));
         assertNull(stored.get("activeContent"));
@@ -586,7 +599,7 @@ class StoredDocumentSchemaTest {
                         .append("schemaVersion", 1)
                         .append("activeContentSchemaVersion", UNKNOWN));
 
-        store.deactivate(APP, "p-x", 1L, "tester", "off");
+        store.deactivate(APP, "p-x", 1L, AuditActor.verified("tester"), "off");
 
         assertFalse(stored("policy_heads", Filters.eq("policyId", "p-x")).containsKey("activeContentSchemaVersion"));
         assertNull(store.findHead(APP, "p-x").orElseThrow().activeVersion());
@@ -651,9 +664,11 @@ class StoredDocumentSchemaTest {
     @Test
     void theWriteConditionAdmitsOnlyAnIntegerMarkerAndNothingTheReadRefuses() {
         Map<String, Executable> writers = new LinkedHashMap<>();
-        writers.put("append", () -> store.append(APP, "p-x", policy("p-x", 2), 1L, "tester", "second"));
-        writers.put("activate", () -> store.activate(APP, "p-x", 1, 1L, "tester", "one"));
-        writers.put("deactivate", () -> store.deactivate(APP, "p-x", 1L, "tester", "off"));
+        writers.put(
+                "append",
+                () -> store.append(APP, "p-x", policy("p-x", 2), 1L, AuditActor.verified("tester"), "second"));
+        writers.put("activate", () -> store.activate(APP, "p-x", 1, 1L, AuditActor.verified("tester"), "one"));
+        writers.put("deactivate", () -> store.deactivate(APP, "p-x", 1L, AuditActor.verified("tester"), "off"));
 
         for (OwnMarker marker : OwnMarker.ROWS) {
             seedHeadWithOwnMarker(marker);
@@ -746,23 +761,26 @@ class StoredDocumentSchemaTest {
     void noAppendLandsOnAHeadThatChangedShapeJustBeforeTheWrite() {
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
         assertRefusedAfterAnotherBuildReshapesTheHead(
-                () -> store.append(APP, "p-x", policy("p-x", 3), 1L, "tester", "third"));
+                () -> store.append(APP, "p-x", policy("p-x", 3), 1L, AuditActor.verified("tester"), "third"));
         assertEquals(2, collection("policy_versions").countDocuments(), "append wrote a version");
     }
 
     @Test
     void noActivationLandsOnAHeadThatChangedShapeJustBeforeTheWrite() {
-        assertRefusedAfterAnotherBuildReshapesTheHead(() -> store.activate(APP, "p-x", 2, 1L, "tester", "two"));
+        assertRefusedAfterAnotherBuildReshapesTheHead(
+                () -> store.activate(APP, "p-x", 2, 1L, AuditActor.verified("tester"), "two"));
     }
 
     @Test
     void noDeactivationLandsOnAHeadThatChangedShapeJustBeforeTheWrite() {
-        assertRefusedAfterAnotherBuildReshapesTheHead(() -> store.deactivate(APP, "p-x", 1L, "tester", "off"));
+        assertRefusedAfterAnotherBuildReshapesTheHead(
+                () -> store.deactivate(APP, "p-x", 1L, AuditActor.verified("tester"), "off"));
     }
 
     @Test
     void noConfigurationReplaceLandsOnADocumentThatChangedShapeJustBeforeTheWrite() {
-        assertRefusedAfterAnotherBuildReshapesTheConfiguration(() -> configStore.replace(APP, draft(), 1L, "tester"));
+        assertRefusedAfterAnotherBuildReshapesTheConfiguration(
+                () -> configStore.replace(APP, draft(), 1L, AuditActor.verified("tester")));
     }
 
     /** The case that used to answer success while destroying a document this build cannot read. */
@@ -773,8 +791,8 @@ class StoredDocumentSchemaTest {
 
     @Test
     void noCatalogueReplaceLandsOnAnEntryThatChangedShapeJustBeforeTheWrite() {
-        assertRefusedAfterAnotherBuildReshapesTheCatalogueEntry(
-                () -> catalogueStore.replace(APP, "document", List.of("read", "approve"), 1L, "tester"));
+        assertRefusedAfterAnotherBuildReshapesTheCatalogueEntry(() ->
+                catalogueStore.replace(APP, "document", List.of("read", "approve"), 1L, AuditActor.verified("tester")));
     }
 
     /** The same case for the catalogue: a delete that answered success and destroyed the entry. */
@@ -831,7 +849,7 @@ class StoredDocumentSchemaTest {
      * Another build, rewriting one document in place into a shape this build does not know — its marker
      * only, not its revision — the first time this build sends a write to that document's collection.
      */
-    private final class OtherBuild {
+    private final class OtherBuild implements BeforeWrite {
 
         private static final Set<String> WRITES = Set.of(
                 "updateOne",
@@ -846,22 +864,29 @@ class StoredDocumentSchemaTest {
 
         private final String collection;
         private final Bson document;
+        private final Object marker;
         private byte[] left;
 
         OtherBuild(String collection, Bson document) {
+            this(collection, document, UNKNOWN);
+        }
+
+        /** The same other build, leaving {@code marker} — any value, not only an unknown integer — in place. */
+        OtherBuild(String collection, Bson document, Object marker) {
             this.collection = collection;
             this.document = Filters.and(Filters.eq("app", APP), document);
+            this.marker = marker;
         }
 
         /** @return {@code target}, except that the first write sent through it lets this build write first. */
         @SuppressWarnings("unchecked")
-        <T> MongoCollection<T> before(MongoCollection<T> target) {
+        public <T> MongoCollection<T> before(MongoCollection<T> target) {
             return (MongoCollection<T>) Proxy.newProxyInstance(
                     MongoCollection.class.getClassLoader(),
                     new Class<?>[] {MongoCollection.class},
                     (proxy, method, args) -> {
                         if (left == null && WRITES.contains(method.getName())) {
-                            collection(collection).updateOne(document, Updates.set("schemaVersion", UNKNOWN));
+                            collection(collection).updateOne(document, Updates.set("schemaVersion", marker));
                             left = raw(collection, document);
                         }
                         try {
@@ -881,6 +906,41 @@ class StoredDocumentSchemaTest {
         }
     }
 
+    /** Something another writer does to a collection immediately before this build's first write to it. */
+    private interface BeforeWrite {
+        <T> MongoCollection<T> before(MongoCollection<T> target);
+    }
+
+    /** Another writer that runs {@code change} once, immediately before this build's first write. */
+    private static final class AnotherWriter implements BeforeWrite {
+
+        private final Runnable change;
+        private boolean ran;
+
+        AnotherWriter(Runnable change) {
+            this.change = change;
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> MongoCollection<T> before(MongoCollection<T> target) {
+            return (MongoCollection<T>) Proxy.newProxyInstance(
+                    MongoCollection.class.getClassLoader(),
+                    new Class<?>[] {MongoCollection.class},
+                    (proxy, method, args) -> {
+                        if (!ran && OtherBuild.WRITES.contains(method.getName())) {
+                            ran = true;
+                            change.run();
+                        }
+                        try {
+                            return method.invoke(target, args);
+                        } catch (InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    });
+        }
+    }
+
     /*
      * The three repositories, except that their collection lets another build write first. Installed per
      * test with QuarkusMock; vetoed so none is ever discovered as a second bean.
@@ -889,9 +949,9 @@ class StoredDocumentSchemaTest {
     @Vetoed
     static final class HeadsAnotherBuildWritesFirst extends PolicyHeadRepository {
 
-        private final OtherBuild otherBuild;
+        private final BeforeWrite otherBuild;
 
-        HeadsAnotherBuildWritesFirst(OtherBuild otherBuild) {
+        HeadsAnotherBuildWritesFirst(BeforeWrite otherBuild) {
             this.otherBuild = otherBuild;
         }
 
@@ -904,9 +964,9 @@ class StoredDocumentSchemaTest {
     @Vetoed
     static final class ConfigurationsAnotherBuildWritesFirst extends AppConfigRepository {
 
-        private final OtherBuild otherBuild;
+        private final BeforeWrite otherBuild;
 
-        ConfigurationsAnotherBuildWritesFirst(OtherBuild otherBuild) {
+        ConfigurationsAnotherBuildWritesFirst(BeforeWrite otherBuild) {
             this.otherBuild = otherBuild;
         }
 
@@ -919,9 +979,9 @@ class StoredDocumentSchemaTest {
     @Vetoed
     static final class CatalogueEntriesAnotherBuildWritesFirst extends ActionCatalogueRepository {
 
-        private final OtherBuild otherBuild;
+        private final BeforeWrite otherBuild;
 
-        CatalogueEntriesAnotherBuildWritesFirst(OtherBuild otherBuild) {
+        CatalogueEntriesAnotherBuildWritesFirst(BeforeWrite otherBuild) {
             this.otherBuild = otherBuild;
         }
 
@@ -929,6 +989,230 @@ class StoredDocumentSchemaTest {
         public MongoCollection<ActionCatalogueDocument> mongoCollection() {
             return otherBuild.before(super.mongoCollection());
         }
+    }
+
+    // ── 9. A write that matched nothing is answered by what the store holds ──────────
+
+    /*
+     * Carried over from the audit of the schema-marker chain, which closed with both items routed here.
+     *
+     * First: a failed conditional write has exactly three causes, and each is answered for what it is, by
+     * asking the store — not by comparing the revision read back with the If-Match, which cannot tell a stale
+     * caller from a document this build may read and not write, and which configuration and catalogue
+     * documents defeat anyway, being reborn at revision 1 after a delete and recreate.
+     *
+     * Second: write is a subset of read for configuration and catalogue documents, pinned by the values an
+     * equality-only filter would admit — an array holding 1 and a decimal 1.0 — placed immediately before
+     * the replace and the delete.
+     */
+
+    private static final List<Object> MARKERS_ONLY_EQUALITY_WOULD_ADMIT =
+            List.of(List.of(1), new Decimal128(new BigDecimal("1.0")));
+
+    /** The case the audit measured: a current If-Match was told it did not match revision 5. */
+    @Test
+    void aCurrentIfMatchOnADocumentTheWriteRefusesIsNotAnswered412() {
+        for (Object malformed : List.of(1.0d, new Decimal128(new BigDecimal("1")))) {
+            wipe();
+            collection("app_configs")
+                    .insertOne(unmarkedConfig().append("revision", 5L).append("schemaVersion", malformed));
+            assertInstanceOf(
+                    StoredDocumentSchemaException.class,
+                    outcomeOf(() -> configStore.replace(APP, draft(), 5L, AuditActor.verified("tester"))),
+                    "configuration replace, " + malformed);
+            assertInstanceOf(
+                    StoredDocumentSchemaException.class,
+                    outcomeOf(() -> configStore.delete(APP, 5L)),
+                    "configuration delete, " + malformed);
+
+            collection("action_catalogue")
+                    .insertOne(unmarkedEntry("document", List.of("read"))
+                            .append("revision", 5L)
+                            .append("schemaVersion", malformed));
+            assertInstanceOf(
+                    StoredDocumentSchemaException.class,
+                    outcomeOf(() -> catalogueStore.replace(
+                            APP, "document", List.of("read", "approve"), 5L, AuditActor.verified("tester"))),
+                    "catalogue replace, " + malformed);
+            assertInstanceOf(
+                    StoredDocumentSchemaException.class,
+                    outcomeOf(() -> catalogueStore.delete(APP, "document", 5L)),
+                    "catalogue delete, " + malformed);
+
+            collection("policy_heads")
+                    .insertOne(unmarkedHead("p-x", null, null, 5L).append("schemaVersion", malformed));
+            collection("policy_versions").insertOne(unmarkedVersion("p-x", policy("p-x", 1)));
+            ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
+            assertInstanceOf(
+                    StoredDocumentSchemaException.class,
+                    outcomeOf(
+                            () -> store.append(APP, "p-x", policy("p-x", 2), 5L, AuditActor.verified("tester"), null)),
+                    "head append, " + malformed);
+            assertInstanceOf(
+                    StoredDocumentSchemaException.class,
+                    outcomeOf(() -> store.activate(APP, "p-x", 1, 5L, AuditActor.verified("tester"), null)),
+                    "head activate, " + malformed);
+            assertInstanceOf(
+                    StoredDocumentSchemaException.class,
+                    outcomeOf(() -> store.deactivate(APP, "p-x", 5L, AuditActor.verified("tester"), null)),
+                    "head deactivate, " + malformed);
+        }
+    }
+
+    @Test
+    void aConfigurationWriteThatMatchedNothingIsAnsweredForItsCause() {
+        Bson identity = Filters.eq("app", APP);
+        assertCauses(
+                () -> collection("app_configs").insertOne(unmarkedConfig().append("schemaVersion", 1)),
+                "app_configs",
+                identity,
+                writer -> QuarkusMock.installMockForType(
+                        new ConfigurationsAnotherBuildWritesFirst(writer), AppConfigRepository.class),
+                () -> configStore.replace(APP, draft(), 1L, AuditActor.verified("tester")),
+                NotFound.CONFIGURATION);
+    }
+
+    @Test
+    void aCatalogueWriteThatMatchedNothingIsAnsweredForItsCause() {
+        Bson identity = Filters.and(Filters.eq("app", APP), Filters.eq("resourceType", "document"));
+        assertCauses(
+                () -> collection("action_catalogue")
+                        .insertOne(unmarkedEntry("document", List.of("read")).append("schemaVersion", 1)),
+                "action_catalogue",
+                identity,
+                writer -> QuarkusMock.installMockForType(
+                        new CatalogueEntriesAnotherBuildWritesFirst(writer), ActionCatalogueRepository.class),
+                () -> catalogueStore.replace(
+                        APP, "document", List.of("read", "approve"), 1L, AuditActor.verified("tester")),
+                NotFound.CATALOGUE);
+    }
+
+    @Test
+    void aHeadWriteThatMatchedNothingIsAnsweredForItsCause() {
+        Bson identity = Filters.and(Filters.eq("app", APP), Filters.eq("policyId", "p-x"));
+        assertCauses(
+                () -> {
+                    ActionCatalogueTestSupport.declare(catalogueRepository, APP, "document", "read");
+                    collection("policy_heads")
+                            .insertOne(unmarkedHead("p-x", null, null, 1L).append("schemaVersion", 1));
+                    collection("policy_versions").insertOne(unmarkedVersion("p-x", policy("p-x", 1)));
+                },
+                "policy_heads",
+                identity,
+                writer -> QuarkusMock.installMockForType(
+                        new HeadsAnotherBuildWritesFirst(writer), PolicyHeadRepository.class),
+                () -> store.deactivate(APP, "p-x", 1L, AuditActor.verified("tester"), null),
+                NotFound.POLICY);
+    }
+
+    @Test
+    void noConfigurationReplaceLandsOnAMarkerOnlyEqualityWouldAdmit() {
+        for (Object marker : MARKERS_ONLY_EQUALITY_WOULD_ADMIT) {
+            wipe();
+            assertRefusedAfterAnotherBuildLeavesOnTheConfiguration(
+                    marker, () -> configStore.replace(APP, draft(), 1L, AuditActor.verified("tester")));
+        }
+    }
+
+    @Test
+    void noConfigurationDeleteLandsOnAMarkerOnlyEqualityWouldAdmit() {
+        for (Object marker : MARKERS_ONLY_EQUALITY_WOULD_ADMIT) {
+            wipe();
+            assertRefusedAfterAnotherBuildLeavesOnTheConfiguration(marker, () -> configStore.delete(APP, 1L));
+        }
+    }
+
+    @Test
+    void noCatalogueReplaceLandsOnAMarkerOnlyEqualityWouldAdmit() {
+        for (Object marker : MARKERS_ONLY_EQUALITY_WOULD_ADMIT) {
+            wipe();
+            assertRefusedAfterAnotherBuildLeavesOnTheCatalogueEntry(
+                    marker,
+                    () -> catalogueStore.replace(
+                            APP, "document", List.of("read", "approve"), 1L, AuditActor.verified("tester")));
+        }
+    }
+
+    @Test
+    void noCatalogueDeleteLandsOnAMarkerOnlyEqualityWouldAdmit() {
+        for (Object marker : MARKERS_ONLY_EQUALITY_WOULD_ADMIT) {
+            wipe();
+            assertRefusedAfterAnotherBuildLeavesOnTheCatalogueEntry(
+                    marker, () -> catalogueStore.delete(APP, "document", 1L));
+        }
+    }
+
+    private void assertRefusedAfterAnotherBuildLeavesOnTheConfiguration(Object marker, Executable write) {
+        collection("app_configs").insertOne(unmarkedConfig().append("schemaVersion", 1));
+        OtherBuild otherBuild = new OtherBuild("app_configs", Filters.eq("app", APP), marker);
+        QuarkusMock.installMockForType(
+                new ConfigurationsAnotherBuildWritesFirst(otherBuild), AppConfigRepository.class);
+
+        assertRefusedAfter(otherBuild, write);
+    }
+
+    private void assertRefusedAfterAnotherBuildLeavesOnTheCatalogueEntry(Object marker, Executable write) {
+        collection("action_catalogue")
+                .insertOne(unmarkedEntry("document", List.of("read")).append("schemaVersion", 1));
+        OtherBuild otherBuild = new OtherBuild("action_catalogue", Filters.eq("resourceType", "document"), marker);
+        QuarkusMock.installMockForType(
+                new CatalogueEntriesAnotherBuildWritesFirst(otherBuild), ActionCatalogueRepository.class);
+
+        assertRefusedAfter(otherBuild, write);
+    }
+
+    /** Which not-found problem a store answers with. */
+    private enum NotFound {
+        CONFIGURATION(AppConfigNotFoundException.class),
+        CATALOGUE(CatalogueEntryNotFoundException.class),
+        POLICY(PolicyNotFoundException.class);
+
+        private final Class<? extends RuntimeException> type;
+
+        NotFound(Class<? extends RuntimeException> type) {
+            this.type = type;
+        }
+    }
+
+    /**
+     * The same write, three times, each time with a different change made by another writer in the gap: the
+     * document removed (404), its revision moved (412, with the new revision), and its marker left malformed
+     * with the revision unchanged (the shape refusal — never 412).
+     */
+    private void assertCauses(
+            Runnable seed,
+            String collection,
+            Bson identity,
+            Consumer<BeforeWrite> install,
+            Executable write,
+            NotFound notFound) {
+        wipe();
+        seed.run();
+        AnotherWriter deletes = new AnotherWriter(() -> collection(collection).deleteOne(identity));
+        install.accept(deletes);
+        Throwable deleted = outcomeOf(write);
+        assertTrue(deletes.ran, "the other writer never ran");
+        assertInstanceOf(notFound.type, deleted, "deleted in the gap");
+
+        wipe();
+        seed.run();
+        AnotherWriter moves =
+                new AnotherWriter(() -> collection(collection).updateOne(identity, Updates.inc("revision", 1L)));
+        install.accept(moves);
+        Throwable moved = outcomeOf(write);
+        assertTrue(moves.ran, "the other writer never ran");
+        PreconditionFailedException stale =
+                assertInstanceOf(PreconditionFailedException.class, moved, "moved in the gap");
+        assertEquals(2L, stale.toProblemDetail().currentRevision());
+
+        wipe();
+        seed.run();
+        AnotherWriter malforms =
+                new AnotherWriter(() -> collection(collection).updateOne(identity, Updates.set("schemaVersion", 1.0d)));
+        install.accept(malforms);
+        Throwable malformed = outcomeOf(write);
+        assertTrue(malforms.ran, "the other writer never ran");
+        assertInstanceOf(StoredDocumentSchemaException.class, malformed, "malformed in the gap, revision unchanged");
     }
 
     // ── fixtures ────────────────────────────────────────────────────────────────

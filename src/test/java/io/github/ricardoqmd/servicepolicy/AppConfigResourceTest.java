@@ -20,18 +20,22 @@ import io.github.ricardoqmd.servicepolicy.persistence.AppConfigDocument;
 import io.github.ricardoqmd.servicepolicy.persistence.AppConfigRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.http.ContentType;
 
 /**
  * Integration tests for the per-application configuration surface (ADR-029):
  * {@code /v1/apps/{app}/configuration}. Covers the singleton CRUD contract, the ETag / If-Match
- * protocol (ADR-018) including precondition precedence, the admin gate (ADR-013), every validation
- * rule, and per-app isolation (ADR-026).
+ * protocol (ADR-018) including precondition precedence, the per-application control-plane gate
+ * (ADR-033), every validation rule, and per-app isolation (ADR-026).
  */
 @QuarkusTest
 class AppConfigResourceTest {
 
-    private static final String ADMIN = "authz-admin";
+    @Inject
+    ControlPlaneTestSupport controlPlane;
 
     private static final String APP = "test-app";
 
@@ -56,14 +60,14 @@ class AppConfigResourceTest {
     @AfterEach
     void clean() {
         configRepository.deleteAll();
+        controlPlane.installed();
     }
 
     // ── POST — create ────────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createReturns201WithBareViewAndEtag() {
         given().contentType(ContentType.JSON)
                 .body(FULL_CONFIG)
@@ -88,9 +92,8 @@ class AppConfigResourceTest {
      * {@code nullValue()} would pass either way and could not tell the two apart.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithOnlySubjectAttributesOmitsThePipKeyEntirely() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -112,9 +115,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithOnlyPipOmitsTheSubjectAttributesKeyEntirely() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -137,9 +139,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWhenOneAlreadyExistsReturns409() {
         create();
 
@@ -157,9 +158,8 @@ class AppConfigResourceTest {
     // ── GET ──────────────────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void getReturnsTheConfigurationAndEtag() {
         create();
 
@@ -174,9 +174,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void getWhenAbsentReturns404() {
         given().when()
                 .get(CONFIG, APP)
@@ -189,9 +188,8 @@ class AppConfigResourceTest {
     // ── PUT — replace ────────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceReplacesTheWholeDocumentAndBumpsTheRevision() {
         create();
 
@@ -220,9 +218,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithoutIfMatchReturns428() {
         create();
 
@@ -236,9 +233,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithUnparseableIfMatchReturns428() {
         create();
 
@@ -262,9 +258,8 @@ class AppConfigResourceTest {
      * pins is the behaviour a client observes, which is the part that matters.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithBlankIfMatchReturns428() {
         create();
 
@@ -284,9 +279,8 @@ class AppConfigResourceTest {
      * than being failed over punctuation. Pinned here because it is a contract, not an accident.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithAnUnquotedIfMatchIsAccepted() {
         create();
 
@@ -309,9 +303,8 @@ class AppConfigResourceTest {
      * being conditional.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithAHalfQuotedIfMatchReturns428() {
         create();
 
@@ -326,9 +319,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deleteWithAnUnquotedIfMatchIsAccepted() {
         create();
 
@@ -337,9 +329,8 @@ class AppConfigResourceTest {
 
     /** The 412 shape for a path-addressed resource: currentRevision, and no policyId. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithStaleIfMatchReturns412WithCurrentRevision() {
         create();
 
@@ -361,9 +352,8 @@ class AppConfigResourceTest {
      * validation report on a body it may well not want to send once it has.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void staleIfMatchWithAnInvalidBodyReturns412NotValidationError() {
         create();
 
@@ -381,9 +371,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWhenAbsentReturns404() {
         given().contentType(ContentType.JSON)
                 .header("If-Match", "\"1\"")
@@ -397,9 +386,8 @@ class AppConfigResourceTest {
 
     /** The lost-update guard: a second write with the already-spent ETag loses (ADR-018). */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void doubleReplaceWithTheSameIfMatchSecondGets412() {
         create();
 
@@ -424,9 +412,8 @@ class AppConfigResourceTest {
     // ── DELETE ───────────────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deleteReturns204AndTheConfigurationIsGone() {
         create();
 
@@ -436,9 +423,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deleteWithoutIfMatchReturns428() {
         create();
 
@@ -446,9 +432,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deleteWithUnparseableIfMatchReturns428() {
         create();
 
@@ -461,9 +446,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deleteWithStaleIfMatchReturns412() {
         create();
 
@@ -477,9 +461,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void deleteWhenAbsentReturns404() {
         given().header("If-Match", "\"1\"")
                 .when()
@@ -489,7 +472,7 @@ class AppConfigResourceTest {
                 .body("code", equalTo("APP_CONFIG_NOT_FOUND"));
     }
 
-    // ── Admin gate ───────────────────────────────────────────────────────────
+    // ── Control-plane gate (ADR-033) ───────────────────────────────────────────────────────────
 
     @Test
     void unauthenticatedRequestReturns401() {
@@ -498,13 +481,13 @@ class AppConfigResourceTest {
 
     @Test
     @TestSecurity(user = "plain-user")
-    void getWithoutAdminMarkerReturns403() {
+    void getWithoutAuthorizationForTheAppReturns403() {
         given().when().get(CONFIG, APP).then().statusCode(403).body("code", equalTo("FORBIDDEN"));
     }
 
     @Test
     @TestSecurity(user = "plain-user")
-    void createWithoutAdminMarkerReturns403() {
+    void createWithoutAuthorizationForTheAppReturns403() {
         given().contentType(ContentType.JSON)
                 .body(FULL_CONFIG)
                 .when()
@@ -516,7 +499,7 @@ class AppConfigResourceTest {
 
     @Test
     @TestSecurity(user = "plain-user")
-    void replaceWithoutAdminMarkerReturns403() {
+    void replaceWithoutAuthorizationForTheAppReturns403() {
         given().contentType(ContentType.JSON)
                 .header("If-Match", "\"1\"")
                 .body(FULL_CONFIG)
@@ -529,7 +512,7 @@ class AppConfigResourceTest {
 
     @Test
     @TestSecurity(user = "plain-user")
-    void deleteWithoutAdminMarkerReturns403() {
+    void deleteWithoutAuthorizationForTheAppReturns403() {
         given().header("If-Match", "\"1\"")
                 .when()
                 .delete(CONFIG, APP)
@@ -541,9 +524,8 @@ class AppConfigResourceTest {
     // ── Validation ───────────────────────────────────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithNullBodyReturns400BadRequest() {
         given().contentType(ContentType.JSON)
                 .body("null")
@@ -556,9 +538,8 @@ class AppConfigResourceTest {
 
     /** A body that is present but configures nothing is an invalid configuration, not a bad request. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithNeitherSectionReturns400InvalidAppConfig() {
         given().contentType(ContentType.JSON)
                 .body("{}")
@@ -574,9 +555,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithEmptySubjectAttributesReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -592,9 +572,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithBlankAttributeNameReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -611,9 +590,8 @@ class AppConfigResourceTest {
 
     /** The dotted path names the offending mapping, not just its section. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithBlankClaimPathReturns400NamingTheAttribute() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -629,9 +607,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithPipUrlLackingTheSubPlaceholderReturns400() {
         given().contentType(ContentType.JSON)
                 .body(pip("\"https://backend/api/subjects/attributes\"", "500", "300", "\"ref\""))
@@ -647,9 +624,8 @@ class AppConfigResourceTest {
 
     /** Carries the placeholder but is not http/https: the scheme is checked independently. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithNonHttpPipUrlReturns400() {
         given().contentType(ContentType.JSON)
                 .body(pip("\"ftp://backend/subjects/{sub}\"", "500", "300", "\"ref\""))
@@ -669,9 +645,8 @@ class AppConfigResourceTest {
      * the validator has to catch rather than a contrived string.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithAHostlessPipUrlReturns400() {
         given().contentType(ContentType.JSON)
                 .body(pip("\"http:backend/subjects/{sub}\"", "500", "300", "\"ref\""))
@@ -686,9 +661,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithMalformedPipUrlReturns400() {
         given().contentType(ContentType.JSON)
                 .body(pip("\"ht tp://back end/{sub}\"", "500", "300", "\"ref\""))
@@ -701,9 +675,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithBlankPipUrlReturns400() {
         given().contentType(ContentType.JSON)
                 .body(pip("\"\"", "500", "300", "\"ref\""))
@@ -716,9 +689,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithTimeoutBelowRangeReturns400() {
         given().contentType(ContentType.JSON)
                 .body(pip("\"https://b/{sub}\"", "0", "300", "\"ref\""))
@@ -731,9 +703,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithTimeoutAboveRangeReturns400() {
         given().contentType(ContentType.JSON)
                 .body(pip("\"https://b/{sub}\"", "10001", "300", "\"ref\""))
@@ -745,9 +716,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithCacheTtlBelowRangeReturns400() {
         given().contentType(ContentType.JSON)
                 .body(pip("\"https://b/{sub}\"", "500", "-1", "\"ref\""))
@@ -760,9 +730,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithCacheTtlAboveRangeReturns400() {
         given().contentType(ContentType.JSON)
                 .body(pip("\"https://b/{sub}\"", "500", "86401", "\"ref\""))
@@ -775,9 +744,8 @@ class AppConfigResourceTest {
 
     /** Zero is in range for the TTL — "do not cache" is a legitimate choice, unlike a zero timeout. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithZeroCacheTtlIsAccepted() {
         given().contentType(ContentType.JSON)
                 .body(pip("\"https://b/{sub}\"", "500", "0", "\"ref\""))
@@ -789,9 +757,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithBlankCredentialRefReturns400() {
         given().contentType(ContentType.JSON)
                 .body(pip("\"https://b/{sub}\"", "500", "300", "\"  \""))
@@ -804,9 +771,8 @@ class AppConfigResourceTest {
 
     /** Every pip field is required once the section is declared; each absence is its own violation. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithAnEmptyPipSectionReportsEveryMissingField() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -825,9 +791,8 @@ class AppConfigResourceTest {
 
     /** One request, several mistakes, one response listing all of them across both sections. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void multipleViolationsAreAllReportedInOneResponse() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -857,9 +822,8 @@ class AppConfigResourceTest {
 
     /** ADR-026: the app is the path's; a body that also states it is rejected, not reconciled. */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithAppInBodyReturns400() {
         given().contentType(ContentType.JSON)
                 .body("""
@@ -874,9 +838,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithAnInvalidBodyReturns400() {
         create();
 
@@ -891,9 +854,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void replaceWithNullBodyReturns400BadRequest() {
         create();
 
@@ -916,9 +878,8 @@ class AppConfigResourceTest {
      * admin write that can hang.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void writesDoNotContactTheConfiguredSource() {
         String unreachable = pip("\"http://127.0.0.1:1/subjects/{sub}\"", "500", "300", "\"ref\"");
 
@@ -953,9 +914,8 @@ class AppConfigResourceTest {
      * would turn one corrupt key into a 500 for the whole configuration.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void aStoredNullClaimPathIsDroppedRatherThanFailingTheRead() {
         AppConfigDocument seeded = new AppConfigDocument();
         seeded.app = APP;
@@ -980,9 +940,8 @@ class AppConfigResourceTest {
      * block another's, and neither app may see the other's.
      */
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void configurationsOfTwoAppsAreIndependent() {
         create();
 
@@ -1018,9 +977,8 @@ class AppConfigResourceTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void theConfigurationOfAnotherAppIsInvisible() {
         create();
 

@@ -22,11 +22,15 @@ import io.github.ricardoqmd.servicepolicy.domain.policy.Operator;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Policy;
 import io.github.ricardoqmd.servicepolicy.domain.policy.Rule;
 import io.github.ricardoqmd.servicepolicy.persistence.ActionCatalogueRepository;
+import io.github.ricardoqmd.servicepolicy.persistence.AuditActor;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyHeadRepository;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyLifecycleStore;
 import io.github.ricardoqmd.servicepolicy.persistence.PolicyVersionRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.quarkus.test.security.oidc.Claim;
+import io.quarkus.test.security.oidc.ClaimType;
+import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.http.ContentType;
 
 /**
@@ -37,7 +41,8 @@ import io.restassured.http.ContentType;
 @QuarkusTest
 class OperandTypeValidationTest {
 
-    private static final String ADMIN = "authz-admin";
+    @Inject
+    ControlPlaneTestSupport controlPlane;
 
     private static final String APP = "test-app";
 
@@ -57,6 +62,7 @@ class OperandTypeValidationTest {
     @BeforeEach
     void declareCatalogue() {
         ActionCatalogueTestSupport.declare(catalogueRepository, APP, "doc", "read");
+        controlPlane.installed();
     }
 
     @AfterEach
@@ -69,9 +75,8 @@ class OperandTypeValidationTest {
     // ── Part (a): static rejection at authoring ───────────────────────────────
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithStringLiteralOnGtReturns400() {
         given().contentType(ContentType.JSON)
                 .body(policyBody("GT", "\"abc\""))
@@ -85,9 +90,8 @@ class OperandTypeValidationTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithNumericStringLiteralOnGtReturns400() {
         // "10" (a JSON string) is not a JSON number — strict rejection per ADR-023.
         given().contentType(ContentType.JSON)
@@ -100,9 +104,8 @@ class OperandTypeValidationTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithBooleanLiteralOnLtReturns400() {
         given().contentType(ContentType.JSON)
                 .body(policyBody("LT", "true"))
@@ -115,9 +118,8 @@ class OperandTypeValidationTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithIntegerLiteralOnGtSucceeds() {
         given().contentType(ContentType.JSON)
                 .body(policyBody("GT", "10"))
@@ -129,9 +131,8 @@ class OperandTypeValidationTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithDecimalLiteralOnGteSucceeds() {
         given().contentType(ContentType.JSON)
                 .body(policyBody("GTE", "10.5"))
@@ -142,9 +143,8 @@ class OperandTypeValidationTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void createWithAttributeRefOnGtSucceeds() {
         // A reference operand is not validated at authoring — it may resolve to a number at runtime.
         given().contentType(ContentType.JSON)
@@ -156,9 +156,8 @@ class OperandTypeValidationTest {
     }
 
     @Test
-    @TestSecurity(
-            user = "admin-user",
-            roles = {ADMIN})
+    @TestSecurity(user = "admin-user")
+    @OidcSecurity(claims = @Claim(key = "apps", value = ControlPlaneTestSupport.TEST_APPS, type = ClaimType.JSON_ARRAY))
     void appendWithStringLiteralOnLteReturns400() {
         // Create first, then append a version with an invalid operand type.
         given().contentType(ContentType.JSON)
@@ -205,8 +204,8 @@ class OperandTypeValidationTest {
                         "r",
                         Effect.PERMIT,
                         new Comparison(Operator.GT, new AttributeRef("subject.attr.clearance"), new Literal(5)))));
-        lifecycleStore.create(APP, policy, "seed", null);
-        lifecycleStore.activate(APP, "dyn-type-policy", 1, 0L, "seed", null);
+        lifecycleStore.create(APP, policy, AuditActor.verified("seed"), null);
+        lifecycleStore.activate(APP, "dyn-type-policy", 1, 0L, AuditActor.verified("seed"), null);
 
         given().contentType(ContentType.JSON)
                 .body("""
@@ -238,8 +237,8 @@ class OperandTypeValidationTest {
                         "r",
                         Effect.PERMIT,
                         new Comparison(Operator.GT, new AttributeRef("subject.attr.clearance"), new Literal(3)))));
-        lifecycleStore.create(APP, policy, "seed", null);
-        lifecycleStore.activate(APP, "dyn-num-policy", 1, 0L, "seed", null);
+        lifecycleStore.create(APP, policy, AuditActor.verified("seed"), null);
+        lifecycleStore.activate(APP, "dyn-num-policy", 1, 0L, AuditActor.verified("seed"), null);
 
         given().contentType(ContentType.JSON)
                 .body("""

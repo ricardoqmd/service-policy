@@ -49,8 +49,8 @@ quarkus:
       # right after enabling OIDC, this mapper is the usual culprit.
       audience: ${QUARKUS_OIDC_TOKEN_AUDIENCE:service-policy}
     roles:
-      # Keycloak realm roles live here. If `authz-admin` is a CLIENT role instead
-      # of a realm role, use: resource_access/${QUARKUS_OIDC_CLIENT_ID}/roles
+      # Keycloak realm roles live here. If the delegation role (`pdp-client`) is a CLIENT
+      # role instead of a realm role, use: resource_access/${QUARKUS_OIDC_CLIENT_ID}/roles
       role-claim-path: realm_access/roles
 
   # ─── MongoDB ───────────────────────────────────────────────
@@ -121,12 +121,10 @@ service-policy:
     name: "Service Policy"
     description: "Open source ABAC Policy Decision Point"
     repository: "https://github.com/ricardoqmd/service-policy"
-  # Authorization markers (ADR-013). mode: role | scope.
-  # Override role/scope names via env vars, e.g. SERVICE_POLICY_AUTHZ_ADMIN_ROLE=my-admin.
+  # Delegation marker (ADR-013 §5). mode: role | scope.
+  # Override the role/scope name via env vars, e.g. SERVICE_POLICY_AUTHZ_DELEGATION_ROLE=my-client.
+  # There is no administrative marker (ADR-033 §5): the control plane is authorized by policy.
   authz:
-    admin:
-      mode: role
-      role: authz-admin
     delegation:
       mode: role
       role: pdp-client
@@ -135,6 +133,26 @@ service-policy:
   # Uncomment only to tune a deployment; a value below 1 fails startup validation.
   # evaluation:
   #   batch-max-size: 100
+  # Control plane (ADR-033). The control-plane policy set and its claim mapping live in one reserved
+  # application; the application being decided about always comes from the route.
+  control-plane:
+    # Where the control-plane rules are kept. Refused as an ordinary application on create and delete.
+    # Recorded by the installation marker: once installed, a deployment configured with a different
+    # identifier does not start, and one already running denies every control-plane call. Installation
+    # seeds only into an empty application of this name (ADR-033 section 6).
+    reserved-app: service-policy-control-plane
+    # REQUIRED until installation: the claim path that carries the caller's applications, seeded into
+    # the reserved application's configuration. A service that is not installed and lacks it does not
+    # start. Once installed, the stored mapping is the only source and this value is ignored.
+    #   SERVICE_POLICY_CONTROL_PLANE_SUBJECT_ATTRIBUTES_APPS=apps
+    # subject-attributes:
+    #   apps: apps
+    # The one caller accepted before installation: the validated token must carry this claim value.
+    # ALSO REQUIRED until installation — without it no caller could make the write that closes
+    # installation mode, so the service does not start. It grants nothing once that write has happened.
+    #   SERVICE_POLICY_CONTROL_PLANE_BOOTSTRAP_VALUE=<sub of the installing credential>
+    bootstrap:
+      claim: sub
 
 # ═════════════════════════════════════════════════════════════
 # Profile: dev  (active when running `./mvnw quarkus:dev`)
@@ -153,6 +171,11 @@ service-policy:
       # Human-readable plain-text logs in dev (override JSON default).
       console:
         format: "%d{HH:mm:ss.SSS} %-5p [%c{2.}] (%t) %s%e%n"
+  service-policy:
+    control-plane:
+      # Local convenience only; a deployment supplies its own (see the base block above).
+      subject-attributes:
+        apps: apps
 
 # ═════════════════════════════════════════════════════════════
 # Profile: test  (active during `./mvnw test`)
@@ -170,6 +193,12 @@ service-policy:
           level: INFO
       console:
         format: "%d{HH:mm:ss.SSS} %-5p [%c{2.}] (%t) %s%e%n"
+  service-policy:
+    control-plane:
+      subject-attributes:
+        apps: apps
+      bootstrap:
+        value: bootstrap-admin
 
 # ═════════════════════════════════════════════════════════════
 # Profile: prod  (default when running the packaged jar)

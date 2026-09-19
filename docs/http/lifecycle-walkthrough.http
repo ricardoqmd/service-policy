@@ -6,9 +6,10 @@
 ### Start the app first:  ./mvnw quarkus:dev    (Docker running for MongoDB + OIDC)
 ### Swagger UI: http://localhost:8080/q/swagger-ui   OpenAPI: /q/openapi
 ###
-### Tokens (ADR-013):
-###   {{admin_jwt}} — token satisfying the admin marker (default role "authz-admin").
-###                   Required for all policy writes.
+### Tokens (ADR-013, ADR-033):
+###   {{console_jwt}} — token of an administrative surface. The control plane is authorized
+###                     PER APPLICATION, by policy: this token must carry every app named
+###                     below in the claim the deployment maps to `apps`. No role grants it.
 ###   {{jwt}}       — any valid authenticated token. Used for evaluation.
 ###   See "How to obtain tokens" at the bottom.
 ###
@@ -29,11 +30,56 @@
 ###       Stale ETag → 412 ; missing If-Match → 428.
 ###   - The listing shows ALL lifecycle states by default (ADR-025); ?status= filters.
 ###   - Errors are RFC 9457 application/problem+json (see docs/ERRORS.md).
+###   - A control-plane refusal is 403 with the SAME body whether or not the app exists.
+###   - Any write may declare on whose behalf it is made with "subject" (step 7). It
+###     authorizes nothing; the audit records it as DECLARED next to your credential.
 ### ============================================================================
 
 @host = http://localhost:8080
-@auth_admin = Bearer {{admin_jwt}}
+@auth_console = Bearer {{console_jwt}}
 @auth = Bearer {{jwt}}
+ = Bearer {{bootstrap_jwt}}
+
+
+### ============================================================================
+### INSTALLATION (ADR-033 §6) — only on a store that has never been installed
+### ----------------------------------------------------------------------------
+### Startup seeds the reserved application "service-policy-control-plane" with its
+### configuration (apps → SERVICE_POLICY_CONTROL_PLANE_SUBJECT_ATTRIBUTES_APPS), the
+### catalogue of resource type "policy" and the active baseline policy:
+###     permit when resource.attr.app IN subject.attr.apps
+### Until the first SUCCESSFUL control-plane write, only the bootstrap subject is accepted:
+### a token whose `sub` equals SERVICE_POLICY_CONTROL_PLANE_BOOTSTRAP_VALUE. That write
+### closes installation for good; the bootstrap token grants nothing afterwards.
+### On an installed store, skip to step 0.
+### ============================================================================
+
+### I-1) The bootstrap subject may read before installation (a read closes nothing)
+GET {{host}}/v1/apps/service-policy-control-plane/configuration
+Authorization: {{auth_bootstrap}}
+
+### EXPECTED  200 — { app, subjectAttributes: { apps: "<your claim path>" }, revision: 1 }
+
+
+### I-2) Anyone else is refused, even with the app in `apps`
+GET {{host}}/v1/apps/billing/policies
+Authorization: {{auth_console}}
+
+### EXPECTED  403  code: "FORBIDDEN"  detail: "not authorized for this control-plane operation."
+
+
+### I-3) The first successful write, by the bootstrap subject → installation closes
+POST {{host}}/v1/apps/billing/action-catalogue
+Authorization: {{auth_bootstrap}}
+Content-Type: application/json
+
+{
+  "resourceType": "invoice",
+  "actions": ["create", "read"]
+}
+
+### EXPECTED  201 Created. From now on {{auth_bootstrap}} is refused (403) unless its own
+### `apps` claim names the app, and {{auth_console}} is authorized by policy.
 
 
 ### ----------------------------------------------------------------------------
@@ -43,7 +89,7 @@
 ### catalogue for resource type 'document' in this app; declare the catalogue before
 ### authoring". Declare the vocabulary first, then write policies about it.
 POST {{host}}/v1/apps/rh/action-catalogue
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -63,7 +109,7 @@ Content-Type: application/json
 ### gets PERSISTED is ["create","read","update","delete"] (verify in step 5). Adding a
 ### verb to the catalogue later will NOT widen this policy — that needs a new version.
 POST {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -88,7 +134,7 @@ Content-Type: application/json
 ### 2) LIST the app's policies — the INACTIVE one is visible by default (ADR-025)
 ### ----------------------------------------------------------------------------
 GET {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  200 OK   (Paginated<PolicyHeadSummary>)
 ### {
@@ -107,7 +153,7 @@ Authorization: {{auth_admin}}
 ### 3) GET the policy  →  200, read the ETag (needed to write)
 ### ----------------------------------------------------------------------------
 GET {{host}}/v1/apps/rh/policies/doc-access
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  200 OK.  Headers: ETag: "0"
 ### Body (PolicyHeadView): { policyId, app:"rh", resourceType, activeVersion:null,
@@ -118,7 +164,7 @@ Authorization: {{auth_admin}}
 ### 4) APPEND a new version (PUT)  →  200, creates v2 (still inactive)
 ### ----------------------------------------------------------------------------
 PUT {{host}}/v1/apps/rh/policies/doc-access
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 If-Match: "0"
 
@@ -149,7 +195,7 @@ If-Match: "0"
 ### 5) LIST versions
 ### ----------------------------------------------------------------------------
 GET {{host}}/v1/apps/rh/policies/doc-access/versions?view=full
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  200 — data: [ {policyId, app:"rh", version:1, …}, {… version:2 …} ]
 ### Look at `actions` in the content: ["create","read","update","delete"] — NOT ["*"].
@@ -176,16 +222,22 @@ Content-Type: application/json
 ### 7) ACTIVATE version 2  →  200, now it's live
 ### ----------------------------------------------------------------------------
 POST {{host}}/v1/apps/rh/policies/doc-access/activate
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 If-Match: "1"
 
 {
   "version": 2,
-  "changeReason": "go live with area-scope"
+  "changeReason": "go live with area-scope",
+  "subject": "person-17"
 }
 
 ### EXPECTED  200 OK, ETag: "2"   (activeVersion: 2)
+### audit: { createdBy: "<your console's sub>", subject: "person-17",
+###          subjectProvenance: "DECLARED", changeReason, createdAt }
+### "subject" declares on whose behalf the write is made. It AUTHORIZES NOTHING — the
+### same write succeeds or fails identically without it — and the audit keeps it apart
+### from the verified credential. Omit it (or send your own sub) → VERIFIED.
 
 
 ### ----------------------------------------------------------------------------
@@ -246,7 +298,7 @@ Content-Type: application/json
 ### Note it need not match rh's: two apps may both define "document" with different
 ### verbs and never collide (ADR-024/026/028).
 POST {{host}}/v1/apps/nami/action-catalogue
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 { "resourceType": "document", "actions": ["read", "update"] }
@@ -256,7 +308,7 @@ Content-Type: application/json
 
 ### 11) Create "doc-access" AGAIN — but in app "nami"  →  201 (not 409!)
 POST {{host}}/v1/apps/nami/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -280,7 +332,7 @@ Content-Type: application/json
 
 ### 12) Each is read under its own route — they are independent
 GET {{host}}/v1/apps/nami/policies/doc-access
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  200 — app: "nami", its own rules, its own revision (0), inactive.
 ### The rh one is untouched (still active on v2).
@@ -288,7 +340,7 @@ Authorization: {{auth_admin}}
 
 ### 13) Activate the nami one
 POST {{host}}/v1/apps/nami/policies/doc-access/activate
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 If-Match: "0"
 
@@ -344,34 +396,37 @@ Content-Type: application/json
 
 
 ### ============================================================================
-### CROSS-APP CATALOGUE (ADR-026 §3) — read-only, for multi-app administrators
+### CROSS-APP CATALOGUE (ADR-026 §3) — read-only, SCOPED to the apps you may read (ADR-033 §2)
 ### ============================================================================
 
 ### 17) All policies of ALL apps (paginated server-side)
 GET {{host}}/v1/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  200 — both "doc-access" of rh AND "doc-access" of nami, each with its
-### own `app` field. This is the only non-nested route, and it is READ-ONLY.
+### own `app` field, and nothing of any app your token cannot read: the scope is applied
+### BEFORE the query, so totalElements counts only what you can see. No readable app →
+### 200 with an empty page, never 403. This is the only non-nested route, and it is READ-ONLY.
 
 
 ### 18) Catalogue filtered by app
 GET {{host}}/v1/policies?app=rh
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
-### EXPECTED  200 — only rh's policies
+### EXPECTED  200 — only rh's policies. An app outside your scope → the same empty page as
+### an app that does not exist.
 
 
 ### 19) Catalogue filtered by status
 GET {{host}}/v1/policies?status=active
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  200 — only active heads, across all apps
 
 
 ### 20) COMPOSITION — app AND status (filters combine with AND)
 GET {{host}}/v1/policies?app=rh&status=active
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  200 — only the ACTIVE policies of app rh
 
@@ -382,7 +437,7 @@ Authorization: {{auth_admin}}
 
 ### 21) Only the inactive policies of app "rh"
 GET {{host}}/v1/apps/rh/policies?status=inactive
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  200 — inactive heads of rh only.  (There is no ?app= here — the path
 ### already scopes it.)
@@ -392,7 +447,7 @@ Authorization: {{auth_admin}}
 ### 22) DEACTIVATE  →  200, soft retire (history intact)
 ### ----------------------------------------------------------------------------
 POST {{host}}/v1/apps/rh/policies/doc-access/deactivate
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 If-Match: "2"
 
@@ -421,7 +476,7 @@ Content-Type: application/json
 ### 24) 400 INVALID_POLICY — `app` present in the body (ADR-026)
 ### Even though it MATCHES the path, the field must not exist at all.
 POST {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -458,7 +513,7 @@ Content-Type: application/json
 
 ### 26) 409 POLICY_ALREADY_EXISTS — duplicate id WITHIN the same app
 POST {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -478,7 +533,7 @@ Content-Type: application/json
 
 ### 27) 404 POLICY_NOT_FOUND — the policy of another app is invisible
 GET {{host}}/v1/apps/kronia/policies/doc-access
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  404  code: "POLICY_NOT_FOUND"
 ### → "No policy with id 'doc-access' in app 'kronia'."
@@ -487,7 +542,7 @@ Authorization: {{auth_admin}}
 
 ### 28) 428 PRECONDITION_REQUIRED — write without If-Match
 PUT {{host}}/v1/apps/rh/policies/doc-access
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 { "content": { "policyId": "doc-access", "version": 4, "resourceType": "document",
@@ -500,7 +555,7 @@ Content-Type: application/json
 
 ### 29) 412 PRECONDITION_FAILED — stale If-Match
 POST {{host}}/v1/apps/rh/policies/doc-access/activate
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 If-Match: "0"
 
@@ -512,7 +567,7 @@ If-Match: "0"
 ### 30) 404 VERSION_NOT_FOUND — activate a version that doesn't exist
 ### Use the current ETag of rh/doc-access in place of "3".
 POST {{host}}/v1/apps/rh/policies/doc-access/activate
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 If-Match: "3"
 
@@ -523,7 +578,7 @@ If-Match: "3"
 
 ### 31) 400 — invalid ?status= value
 GET {{host}}/v1/apps/rh/policies?status=whatever
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 
 ### EXPECTED  400  → "'status' must be one of: active, inactive, all."
 ### NOTE: ?status= (present but EMPTY) is also 400 — a blank value is an explicit
@@ -532,7 +587,7 @@ Authorization: {{auth_admin}}
 
 ### 32) 400 INVALID_POLICY — ordering operator with a non-numeric LITERAL (ADR-023)
 POST {{host}}/v1/apps/rh/policies
-Authorization: {{auth_admin}}
+Authorization: {{auth_console}}
 Content-Type: application/json
 
 {
@@ -555,7 +610,7 @@ Content-Type: application/json
 ### → deny. Evaluation never returns 500 on operand type.
 
 
-### 33) 403 FORBIDDEN — write with a non-admin token
+### 33) 403 FORBIDDEN — write with a token that does not carry this app in `apps`
 POST {{host}}/v1/apps/rh/policies
 Authorization: {{auth}}
 Content-Type: application/json
@@ -563,7 +618,8 @@ Content-Type: application/json
 { "policyId": "nope", "version": 1, "resourceType": "document", "actions": ["*"],
   "combiningAlgorithm": "DENY_OVERRIDES", "defaultEffect": "DENY", "rules": [] }
 
-### EXPECTED  403  code: "FORBIDDEN"  (caller lacks the admin marker)
+### EXPECTED  403  code: "FORBIDDEN"  detail: "not authorized for this control-plane operation."
+### Try it with /v1/apps/zz-does-not-exist/policies: the response is byte for byte the same.
 
 
 ### ============================================================================
@@ -575,8 +631,11 @@ Content-Type: application/json
 ### HOW TO OBTAIN TOKENS (dev)
 ### ----------------------------------------------------------------------------
 ### In quarkus:dev the OIDC dev services start a Keycloak. Get tokens via the Dev UI
-### (http://localhost:8080/q/dev) → OIDC. {{admin_jwt}} must carry the admin marker
-### (role "authz-admin" by default; configurable per ADR-013).
+### (http://localhost:8080/q/dev) → OIDC. {{console_jwt}} must carry, in the claim the
+### deployment maps to `apps` (SERVICE_POLICY_CONTROL_PLANE_SUBJECT_ATTRIBUTES_APPS), every
+### application these requests name. There is no admin role (ADR-033).
+### On a store that has never been installed, use a token whose `sub` is the configured
+### bootstrap value instead: see INSTALLATION at the top of lifecycle-walkthrough.http.
 ###
 ### SURFACE (ADR-026):
 ###   /v1/apps/{app}/policies[/{id}[/activate|/deactivate|/versions[/{v}]]]
@@ -584,7 +643,8 @@ Content-Type: application/json
 ###   /v1/apps/{app}/action-catalogue[/{resourceType}]   ← ADR-028, see action-catalogue.http
 ###   /v1/apps/{app}/evaluate[/batch]
 ###   /v1/apps/{app}/permissions
-###   /v1/policies                    ← cross-app catalogue, READ-ONLY (?app= ?status=)
+###   /v1/apps/{app}/configuration     ← ADR-029, see app-configuration.http
+###   /v1/policies                    ← cross-app catalogue, READ-ONLY, scoped (?app= ?status=)
 ###
 ### POLICY AUTHORING REFERENCE:
 ###   Identity     (app, policyId). The app comes from the PATH; `app` must NOT be in

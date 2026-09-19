@@ -1,6 +1,5 @@
 package io.github.ricardoqmd.servicepolicy.persistence;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -13,7 +12,9 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 
 import com.mongodb.MongoWriteException;
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
@@ -23,7 +24,6 @@ import io.github.ricardoqmd.servicepolicy.problem.ActionInUseException;
 import io.github.ricardoqmd.servicepolicy.problem.CatalogueEntryAlreadyExistsException;
 import io.github.ricardoqmd.servicepolicy.problem.CatalogueEntryNotFoundException;
 import io.github.ricardoqmd.servicepolicy.problem.PreconditionFailedException;
-import io.github.ricardoqmd.servicepolicy.problem.ProblemException;
 
 /**
  * The only door to the action catalogue collection (ADR-028): REST reads and writes entries through
@@ -56,8 +56,6 @@ public class ActionCatalogueStore {
     private static final String ACTIONS = "actions";
     private static final String REVISION = "revision";
     private static final String AUDIT = "audit";
-    private static final String CREATED_BY = "createdBy";
-    private static final String CREATED_AT = "createdAt";
     private static final String SCHEMA_VERSION = "schemaVersion";
 
     private final ActionCatalogueRepository repository;
@@ -94,13 +92,13 @@ public class ActionCatalogueStore {
      * @throws CatalogueEntryAlreadyExistsException (409) if the app already declares that resource
      *     type — arbitrated by the unique index, so a concurrent create loses rather than duplicates.
      */
-    public ActionCatalogueEntry create(String app, String resourceType, List<String> actions, String callerSubject) {
+    public ActionCatalogueEntry create(String app, String resourceType, List<String> actions, AuditActor actor) {
         ActionCatalogueDocument document = new ActionCatalogueDocument();
         document.app = app;
         document.resourceType = resourceType;
         document.actions = List.copyOf(actions);
         document.revision = 1L;
-        document.audit = auditDocument(callerSubject);
+        document.audit = AuditDocuments.of(actor);
 
         try {
             repository.mongoCollection().insertOne(document);
@@ -124,7 +122,7 @@ public class ActionCatalogueStore {
      * @throws ActionInUseException (409) if a removed action is referenced by an active policy.
      */
     public ActionCatalogueEntry replace(
-            String app, String resourceType, List<String> actions, long ifMatch, String callerSubject) {
+            String app, String resourceType, List<String> actions, long ifMatch, AuditActor actor) {
         ActionCatalogueDocument current = requirePrecondition(app, resourceType, ifMatch);
 
         List<String> removed = current.actions.stream()
@@ -138,7 +136,7 @@ public class ActionCatalogueStore {
                         writable(app, resourceType, ifMatch),
                         Updates.combine(
                                 Updates.set(ACTIONS, List.copyOf(actions)),
-                                Updates.set(AUDIT, auditDocument(callerSubject)),
+                                Updates.set(AUDIT, AuditDocuments.of(actor)),
                                 Updates.inc(REVISION, 1L)));
 
         if (cas.getMatchedCount() == 0) {
@@ -229,41 +227,57 @@ public class ActionCatalogueStore {
     /**
      * The condition of every write to an existing entry: its identity, the caller's {@code If-Match},
      * and a shape this build knows (ADR-034 §8) — in the write itself, not in the read before it. An
-     * entry of an unknown shape fails the CAS like a stale revision, and {@link #staleOrMissing} re-reads
-     * it through {@link #recognised}, which refuses it.
+     * entry of an unknown shape fails the CAS like a stale revision, and {@link #staleOrMissing} asks the
+     * store which cause it was.
      */
     private static Bson writable(String app, String resourceType, long ifMatch) {
-        return Filters.and(
-                identity(app, resourceType),
-                Filters.eq(REVISION, ifMatch),
-                StoredDocumentSchemaCondition.writable(SCHEMA_VERSION, ActionCatalogueDocument.SCHEMA_VERSION));
+        return Filters.and(identity(app, resourceType), Filters.eq(REVISION, ifMatch), writableMarker());
+    }
+
+    /** The marker as the write condition accepts it (ADR-034 §8, §10). */
+    private static Bson writableMarker() {
+        return StoredDocumentSchemaCondition.writable(SCHEMA_VERSION, ActionCatalogueDocument.SCHEMA_VERSION);
     }
 
     /**
-     * A CAS that matched nothing is either a stale If-Match on an existing entry (412), an entry that
-     * does not exist in this app (404), or one whose shape this build does not know — which the re-read
-     * refuses with {@link StoredDocumentSchemaException} before either could be decided. The same
-     * disambiguation the policy store performs.
+     * A CAS that matched nothing has exactly three causes, and the store is asked which one it was rather
+     * than inferred from a revision — the same disambiguation the policy and configuration stores perform.
+     * {@link #requirePrecondition} has already compared revisions, so getting here means another writer
+     * replaced, deleted or reshaped the entry since — or that its marker is malformed in a way the read
+     * tolerates and the write does not (ADR-034 §11). Answering that last case with 412 would tell a caller
+     * whose {@code If-Match} is current that it is not; and the revision cannot decide it, because an entry
+     * deleted and recreated is reborn at revision 1.
      *
-     * <p>{@link #requirePrecondition} has already read the entry and checked the revision, so getting
-     * here means another writer replaced, deleted or reshaped the entry between that read and this CAS
-     * — or that its marker is malformed in a way the read tolerates and the write does not (ADR-034
-     * §11), which answers 412 until a person repairs it. Keeping it is not defensive clutter — the CAS
-     * is the commit point (ADR-018/ADR-019) and the precondition check above is merely a courtesy that
-     * answers stale clients with the right status; this resolution is what makes the commit point's own
-     * verdict safe.
+     * <ul>
+     *   <li>no entry for {@code (app, resourceType)} — 404;
+     *   <li>an entry with a marker this build accepts for writing — genuinely stale, 412 with its revision;
+     *   <li>an entry whose marker this build does not accept for writing — the shape refusal, whatever its
+     *       revision, naming the marker as stored rather than as the codec would convert it.
+     * </ul>
+     *
+     * <p>Keeping it is not defensive clutter — the CAS is the commit point (ADR-018/ADR-019) and the
+     * precondition check above is merely a courtesy that answers stale clients with the right status; this
+     * resolution is what makes the commit point's own verdict safe.
      */
-    private ProblemException staleOrMissing(String app, String resourceType) {
+    private RuntimeException staleOrMissing(String app, String resourceType) {
+        MongoCollection<Document> entries = repository.mongoCollection().withDocumentClass(Document.class);
+        Document stored = entries.find(identity(app, resourceType))
+                .projection(Projections.include(SCHEMA_VERSION))
+                .first();
+        if (stored == null) {
+            return new CatalogueEntryNotFoundException(app, resourceType);
+        }
+        if (entries.countDocuments(Filters.and(identity(app, resourceType), writableMarker())) == 0) {
+            return new StoredDocumentSchemaException(
+                    ActionCatalogueDocument.COLLECTION,
+                    stored.getObjectId("_id"),
+                    SCHEMA_VERSION,
+                    stored.get(SCHEMA_VERSION));
+        }
         return find(app, resourceType)
-                .map(existing -> (ProblemException)
+                .<RuntimeException>map(existing ->
                         PreconditionFailedException.forCatalogueEntry(app, resourceType, existing.revision()))
                 .orElseGet(() -> new CatalogueEntryNotFoundException(app, resourceType));
-    }
-
-    /** Same field names and shape as the head audit; the catalogue has no changeReason concept. */
-    private static Document auditDocument(String callerSubject) {
-        return new Document(CREATED_BY, callerSubject)
-                .append(CREATED_AT, Instant.now().toString());
     }
 
     /**
